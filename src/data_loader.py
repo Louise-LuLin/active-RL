@@ -60,6 +60,7 @@ class BuildDataLoader:
         print ("Replace digit with NUM: {}".format(str(self.num_flag)))
         print ("use embedding: {}".format(str(self.embed_flag)))
         print ("embedding size: {}".format(self.get_embed_size()))
+        print ("number of instances: {}".format(len(self.sequence)))
     
     def shuffle(self, seed = 4):
         random.Random(4).shuffle(self.sequence)

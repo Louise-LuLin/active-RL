@@ -23,51 +23,55 @@ REPLAY_MEMORY_SIZE = 50  # number of previous transitions to remember
 BATCH_SIZE = 5  # size of minibatch
 LR = 0.001
 
-class ParamRNN(nn.Module):
-    def __init__(self, max_len=50, embedding_size=200, parameter_shape=(5,5), rnn_hidden = 64, n_filters = 16, filter_size = 3, stride=2):
-        super(ParamRNN, self).__init__()
+class TrellisCNN(nn.Module):
+    def __init__(self, max_len=50, embedding_size=200, trellis_shape=(5,5), rnn_hidden = 64, n_filters = 16, filter_size = 3, stride=2):
+        super(TrellisCNN, self).__init__()
         
-        para_h, para_w = parameter_shape
-        # CNN for CRF parameters
+        para_h, para_w = trellis_shape
+        
+        # CNN for CRF trellis
         self.conv1 = nn.Conv2d(
                 in_channels=1,              
                 out_channels=n_filters,   
-                kernel_size=filter_size,              
+                kernel_size=(para_h, filter_size),              
                 stride=stride,        
             )
         self.bn1 = nn.BatchNorm2d(n_filters)
-        self.conv2 = nn.Conv2d(n_filters, n_filters*2, filter_size, stride)
-        self.bn2 = nn.BatchNorm2d(n_filters*2)
-        self.conv3 = nn.Conv2d(n_filters*2, n_filters*2, filter_size, stride)
-        self.bn3 = nn.BatchNorm2d(n_filters*2)
 
         # Number of Linear input connections depends on output of conv2d layers
         # and therefore the input image size, so compute it.
-        def conv2d_size_out(size, kernel_size = filter_size, stride = stride):
-            return (size - (kernel_size - 1) - 1) // stride  + 1
+        def conv2d_w_out(size, kernel_w_size = 3, stride = stride):
+            return (size - (kernel_w_size - 1) - 1) // stride  + 1
+        def conv2d_h_out(size, kernel_h_size = para_h, stride = stride):
+            return (size - (kernel_h_size - 1) - 1) // stride  + 1
         
-        convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(para_w)))
-        convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(para_h)))
-        linear_input_size = convw * convh * n_filters * 2
         
-        self.fc1 = nn.Linear(linear_input_size, rnn_hidden)
+        convw = conv2d_w_out(para_w)
+        convh = conv2d_h_out(para_h)
+        linear_input_size = convw * convh * n_filters
+        
+        self.fc1 = nn.Linear(linear_input_size, rnn_hidden, bias=True)
+        self.fc2 = nn.Linear(1, rnn_hidden, bias=True)
+#         self.fc2 = nn.Linear(1, rnn_hidden)
         
         # LSTM for w sequence
         self.rnn = nn.LSTM(
-            input_size=embedding_size ,
+            input_size=w_dim,
             hidden_size=rnn_hidden, 
             num_layers=1,
             batch_first=True,  # input＆output (batch，time_step，input_size)
         )
         
         # Fully connected layer
-        self.fc = nn.Linear(2 * rnn_hidden, 1)
-    
-    def forward(self, tagger_x, seq_x):
+        self.fc = nn.Linear(rnn_hidden, 1, bias=True)
+
+    # Called with either one element to determine next action, or a batch
+    # during optimization. Returns tensor([[left0exp,right0exp]...]).
+    def forward(self, seq_x, tagger_x, conf_x):
         # CNN
         x1 = F.relu(self.bn1(self.conv1(tagger_x)))
-        x1 = F.relu(self.bn2(self.conv2(x1)))
-        x1 = F.relu(self.bn3(self.conv3(x1)))
+#         x1 = F.relu(self.bn2(self.conv2(x1)))
+#         x1 = F.relu(self.bn3(self.conv3(x1)))
         x1 = F.relu(self.fc1(x1.view(x1.size(0), -1)))
         
         # x shape (batch, time_step, input_size)
@@ -75,22 +79,30 @@ class ParamRNN(nn.Module):
         # h_n shape (n_layers, batch, hidden_size) 
         # h_c shape (n_layers, batch, hidden_size)
         r_out,_ = self.rnn(seq_x, None) 
+        # output of last time step
+#         rnn_out = self.out(r_out[:, -1, :])
         x2 = r_out[:, -1, :]
-        x = torch.cat((x1, x2), 1)
+        
+        x3 = F.relu(self.fc2(conf_x))
+    
+#         x3 = self.fc2(conf_test)
+#         x = torch.cat((x1, x2, x3), 1)
+#         x = torch.cat((x1, x2), 1)
+        x = x1 + x2 + x3
         
         return self.fc(x) # flatten the output
 
 
-class AgentParamRNN(nn.Module):
+class AgentTrellisCNN(nn.Module):
     def __init__(self, greedy = 'te', max_len=50, embedding_size=200, parameter_shape=(5,5), rnn_hidden = 16, n_filters = 4, filter_size = 3):
         print("=== Agent: created")
-        super(AgentParamRNN, self).__init__()
+        super(TrellisCNN, self).__init__()
         # replay memory
         self.replay_buffer = deque()
         self.time_step = 0
         self.greedy = greedy
         
-        self.policy_net = ParamRNN(max_len, embedding_size, parameter_shape, rnn_hidden, n_filters, filter_size).to(device)
+        self.policy_net = TrellisCNN(max_len, embedding_size, parameter_shape, rnn_hidden, n_filters, filter_size).to(device)
         self.target_net = copy.deepcopy(self.policy_net)
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=LR)
         para_size = sum(p.numel() for p in self.policy_net.parameters() if p.requires_grad)

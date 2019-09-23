@@ -8,16 +8,14 @@ from sklearn.feature_extraction.text import CountVectorizer as CV
 import re
 
 class LabelEnv:
-    def __init__(self, dataloader, tagger, seed=4, pretrain_size=15, valid_size=200, test_size=200, reweight='valid2T', budget=75):
+    def __init__(self, dataloader, tagger, seed=4, valid_size=200, test_size=200, train_size=600, reweight='valid2T', budget=75):
         self.dataloader = dataloader
         self.dataloader.shuffle(seed)
         
         print ("=== Env: data ===")
-        self.pretrain_list = self.dataloader.sequence[:pretrain_size]
         self.test_list = self.dataloader.sequence[-test_size:]
         self.valid_list = self.dataloader.sequence[-test_size - valid_size : -test_size]
-        self.train_list  = self.dataloader.sequence[pretrain_size : -test_size - valid_size]
-        print ("pretrain  : {}".format(len(self.pretrain_list)))
+        self.train_list  = self.dataloader.sequence[0 : train_size]
         print ("train     : {}".format(len(self.train_list)))
         print ("validation: {}".format(len(self.valid_list)))
         print ("test      : {}".format(len(self.test_list)))
@@ -33,35 +31,94 @@ class LabelEnv:
         print ("budget: {}".format(self.budget))
         
         self.tagger = tagger
-        self.tagger.add_instances([self.train_list[0]])
-        self.tagger.train()
-        _, _, _, acc_test = self.tagger.evaluate_acc(self.test_list)
-        _, _, _, acc_valid = self.tagger.evaluate_acc(self.valid_list)
-        self.acc = self.reweight_acc()
-        print ("start acc: {} on test, {} on valid, {} after reweight".format(acc_test, acc_valid, self.acc))
+        self.set_tagger([self.train_list[0]])
+        
+        # store instance embeddings, initialize trellis and confidence
+        self.seq_embeddings = []
+        for seq in self.train_list:
+            self.seq_embeddings.append(self.dataloader.get_embedding(seq))
+        self.seq_confidences = []
+        self.seq_trellis = []
+        self.tagger_para = self.tagger.get_parameter_matrix()
         
         self.terminal = False
-        self.queried = {0}
-        self.cost = 1
-        self.acc_trace = {self.cost:(acc_test, acc_valid)}
+        self.scope = range(len(self.train_list)) # or cache for reboot inner loop
+        self.cache = [0]
+        self.queried = []
+        self.cost = 0
+        self.acc_trace = {}
     
-    def reboot(self):
+    def set_tagger(self, seqs):
         self.tagger.reset()
+        self.tagger.add_instances(seqs)
+        self.tagger.train()
     
-    def get_state(self):
-        # compute embedding, confidence, trellis structure for each candidate
-        seq_embeddings = []
-        seq_confidences = []
-        seq_trellis = []
-        for seq in self.train_list:
-            seq_embeddings.append(self.dataloader.get_embedding(seq))
-            seq_confidences.append(self.tagger.compute_confidence(seq))
-            seq_trellis.append(self.tagger.get_marginal_matrix(seq))
-        # construct parameter matrix for current tagger
-        tagger_para = self.tagger.get_parameter_matrix()
-        observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, self.queried]
-        return observation
+    def eval_tagger(self):
+        # evaluate tagger
+        self.cache = self.queried[:]
+        self.set_tagger([self.train_list[i] for i in self.cache])
+        _, _, _, acc_test = self.tagger.evaluate_acc(self.test_list)
+        _, _, _, acc_valid = self.tagger.evaluate_acc(self.valid_list)
+        self.cost = len(self.cache)
+        self.acc_trace[self.cost] = (acc_test, acc_valid)
+        return (acc_test, acc_valid)
+
+    # reboot to generate more experience
+    def reboot(self):
+        self.scope = self.cache[:]
+        random.shuffle(self.scope)
+        init = int(0.5 * len(self.scope))
+        self.queried = [self.scope[i] for i in range(init)]
+        self.set_tagger([self.train_list[self.scope[i]] for i in range(init)])
+        self.acc = self.reweight_acc()
+        self.terminal = False
         
+    def resume(self):
+        self.scope = range(len(self.train_list))
+        self.queried = self.cache[:]
+        self.set_tagger([self.train_list[self.scope[i]] for i in self.queried])
+        self.acc = self.reweight_acc()
+        self.terminal = False
+        
+    def get_state(self):
+        # compute confidence, trellis structure for each candidate
+        self.seq_confidences = []
+        self.seq_trellis = []
+        for seq in self.train_list:
+            self.seq_confidences.append(self.tagger.compute_confidence(seq))
+            self.seq_trellis.append(self.tagger.get_marginal_matrix(seq))
+        # construct parameter matrix for current tagger
+        self.tagger_para = self.tagger.get_parameter_matrix()
+        observation = [self.seq_embeddings, self.seq_confidences, self.seq_trellis, self.tagger_para, self.queried, self.scope]
+        return observation
+ 
+    def feedback(self, new_seq_idx):
+        # reward
+        self.tagger.add_instances([self.train_list[new_seq_idx]])
+        self.tagger.train()
+        new_acc = self.reweight_acc()
+        reward = new_acc - self.acc
+        self.acc = new_acc
+        
+        # next state
+        # compute embedding, confidence, trellis structure for each candidate
+        self.seq_confidences = []
+        self.seq_trellis = []
+        for seq in self.train_list:
+            self.seq_confidences.append(self.tagger.compute_confidence(seq))
+            self.seq_trellis.append(self.tagger.get_marginal_matrix(seq))
+        # construct parameter matrix for current tagger
+        self.tagger_para = self.tagger.get_parameter_matrix()
+        
+        # mark queried
+        self.queried.append(new_seq_idx)        
+        
+        if len(self.queried) >= len(self.scope)-1:
+            self.terminal = True
+        
+        next_observation = [self.seq_embeddings, self.seq_confidences, self.seq_trellis, self.tagger_para, self.queried, self.scope]
+        return (reward, next_observation, self.terminal)
+
     def reweight_acc(self):
         if self.reweight.startswith('test2T'):
             source_seqs = self.test_list
@@ -93,39 +150,6 @@ class LabelEnv:
 
         acc = sum(accs_reweighted) / sum(norms)
         return acc
-
-    def feedback(self, new_seq_idx):
-        # reward
-        self.tagger.add_instances([self.train_list[new_seq_idx]])
-        self.tagger.train()
-        new_acc = self.reweight_acc()
-        reward = new_acc - self.acc
-        self.acc = new_acc
-        
-        # next state
-        # mark queried
-        if new_seq_idx not in self.queried:
-            self.queried.add(new_seq_idx)
-            self.cost += 1
-        _,_,_,acc_test = self.tagger.evaluate_acc(self.test_list)
-        _,_,_,acc_valid = self.tagger.evaluate_acc(self.valid_list)
-        self.acc_trace[self.cost] = (acc_test, acc_valid)
-        # compute embedding, confidence, trellis structure for each candidate
-        seq_embeddings = []
-        seq_confidences = []
-        seq_trellis = []
-        for seq in self.train_list:
-            seq_embeddings.append(self.dataloader.get_embedding(seq))
-            seq_confidences.append(self.tagger.compute_confidence(seq))
-            seq_trellis.append(self.tagger.get_marginal_matrix(seq))
-        # construct parameter matrix for current tagger
-        tagger_para = self.tagger.get_parameter_matrix()
-        
-        if self.cost == self.budget:
-            self.terminal = True
-        
-        next_observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, self.queried]
-        return (reward, next_observation, self.terminal)
         
     # Vectorize a set of string by n-grams.
     def vectorize_string(self, Xs_list):
