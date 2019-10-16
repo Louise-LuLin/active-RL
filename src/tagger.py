@@ -1,6 +1,7 @@
 import math
 import random
 import numpy as np
+import scipy
 import pickle
 import sys
 from gensim.models import KeyedVectors
@@ -221,10 +222,10 @@ class CrfModel(object):
         x = [self.char2feature(sequence[0], i) for i in range(len(sequence[0]))]
         label_list = self.crf.tagger_.labels()
         self.crf.tagger_.set(x)
-        marginals = np.zeros(shape=(len(self.label_dict), self.max_len))
+        marginals = np.zeros(shape=(self.max_len, len(self.label_dict)))
         for i in range(len(x)):
             for lbl in label_list:
-                marginals[self.label_dict[lbl]][i] = self.crf.tagger_.marginal(lbl, i)
+                marginals[i][self.label_dict[lbl]] = self.crf.tagger_.marginal(lbl, i)
         return marginals
     
     def get_label_size(self):
@@ -234,3 +235,6 @@ class CrfModel(object):
         self.train()
         return self.get_parameter_matrix().shape
     
+    def get_trellis_shape(self):
+        marginals = np.zeros(shape=(self.max_len, len(self.label_dict)))
+        return marginals.shape

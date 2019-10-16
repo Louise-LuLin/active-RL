@@ -63,7 +63,8 @@ class BuildDataLoader:
         print ("number of instances: {}".format(len(self.sequence)))
     
     def shuffle(self, seed = 4):
-        random.Random(4).shuffle(self.sequence)
+        self.random = random.Random(seed)
+        self.random.shuffle(self.sequence)
     
     def get_embedding(self, sequence):
         embeddings = np.zeros(shape=(self.max_len, self.get_embed_size()))

@@ -18,7 +18,7 @@ EPS_START = 0.9
 EPS_END = 0.1
 EPS_DECAY = 10
 
-TARGET_UPDATE = 15  # timesteps to observe before training
+TARGET_UPDATE = 20  # timesteps to observe before training
 REPLAY_MEMORY_SIZE = 50  # number of previous transitions to remember
 BATCH_SIZE = 5  # size of minibatch
 LR = 0.001
@@ -33,7 +33,7 @@ class ParamRNN(nn.Module):
                 in_channels=1,              
                 out_channels=n_filters,   
                 kernel_size=filter_size,              
-                stride=stride,        
+                stride=stride,        # input&output (batch, channel, height, width)
             )
         self.bn1 = nn.BatchNorm2d(n_filters)
         self.conv2 = nn.Conv2d(n_filters, n_filters*2, filter_size, stride)
@@ -61,13 +61,14 @@ class ParamRNN(nn.Module):
         )
         
         # Fully connected layer
-        self.fc = nn.Linear(2 * rnn_hidden, 1)
+        self.fc = nn.Linear(rnn_hidden, 1)
     
     def forward(self, tagger_x, seq_x):
         # CNN
         x1 = F.relu(self.bn1(self.conv1(tagger_x)))
         x1 = F.relu(self.bn2(self.conv2(x1)))
         x1 = F.relu(self.bn3(self.conv3(x1)))
+        print (x1.size(0))
         x1 = F.relu(self.fc1(x1.view(x1.size(0), -1)))
         
         # x shape (batch, time_step, input_size)
@@ -76,36 +77,41 @@ class ParamRNN(nn.Module):
         # h_c shape (n_layers, batch, hidden_size)
         r_out,_ = self.rnn(seq_x, None) 
         x2 = r_out[:, -1, :]
-        x = torch.cat((x1, x2), 1)
+        x = x1 + x2
         
         return self.fc(x) # flatten the output
 
 
 class AgentParamRNN(nn.Module):
-    def __init__(self, greedy = 'te', max_len=50, embedding_size=200, parameter_shape=(5,5), rnn_hidden = 16, n_filters = 4, filter_size = 3):
+    def __init__(self, greedy = 'te', max_len=50, embedding_size=200, parameter_shape=(5,5), rnn_hidden = 16, n_filters = 4, filter_size = 3, stride = 2):
         print("=== Agent: created")
         super(AgentParamRNN, self).__init__()
         # replay memory
+        self.random = random.Random(10)
         self.replay_buffer = deque()
         self.time_step = 0
         self.greedy = greedy
         
-        self.policy_net = ParamRNN(max_len, embedding_size, parameter_shape, rnn_hidden, n_filters, filter_size).to(device)
+        self.policy_net = ParamRNN(max_len, embedding_size, parameter_shape, rnn_hidden, n_filters, filter_size, stride).to(device)
         self.target_net = copy.deepcopy(self.policy_net)
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=LR)
         para_size = sum(p.numel() for p in self.policy_net.parameters() if p.requires_grad)
+        
+        print ('parameter size={}'.format(parameter_shape))
+        print ('embed size={}'.format(embedding_size))
+        print ('rnn_hidden={}, n_filter={}, filter_size={}, n_stride={}'.format(rnn_hidden, n_filters, filter_size, stride))
         print ('Q-net parameter size: {}'.format(para_size))
 
     def get_action(self, observation):
         # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, self.queried]
-        seq_embeddings, seq_confidences, tagger_para, queried, scope = observation
+        seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, scope = observation
         candidates = list(set(scope)-set(queried))
         
 #         max_idx = np.argsort(np.array(seq_confidences), kind='mergesort').tolist()[::-1][0]
         if self.greedy == 'rand':
-            max_idx = random.choice(candidates)
+            max_idx = self.random.choice(candidates)
         else:
-            conf_tmp = [seq_confidences[i] for i in candidates]
+            conf_tmp = [seq_confidences[i][0] for i in candidates]
             max_idx = candidates[np.argmax(conf_tmp)]
             
         tagger_para_ts = torch.from_numpy(tagger_para).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0).to(device)
@@ -115,8 +121,8 @@ class AgentParamRNN(nn.Module):
 #         eps_threshold = EPS_END + (EPS_START - EPS_END) * \
 #             math.exp(-1. * self.time_step / EPS_DECAY)
         eps_threshold = 0.3
-        
-        if random.random() < eps_threshold:
+    
+        if self.random.random() < eps_threshold:
             return (0, max_idx, max_q_value)
 
         for i in candidates:
@@ -144,10 +150,10 @@ class AgentParamRNN(nn.Module):
         
     def train_qnet(self):
         # experience = (self.current_state, action, reward, new_state, terminal)
-        # state = (seq_embeddings, seq_confidences, tagger_para, queried, scope)
-        minibatch = random.sample(self.replay_buffer, min(len(self.replay_buffer), BATCH_SIZE))
+        # state = (seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, scope)
+        minibatch = self.random.sample(self.replay_buffer, min(len(self.replay_buffer), BATCH_SIZE))
         
-        state_batch = torch.from_numpy(np.array([experience[0][2] for experience in minibatch])).type(torch.FloatTensor).unsqueeze(1).to(device)
+        state_batch = torch.from_numpy(np.array([experience[0][3] for experience in minibatch])).type(torch.FloatTensor).unsqueeze(1).to(device)
         action_batch = torch.from_numpy(np.array([experience[0][0][experience[1]] for experience in minibatch])).type(torch.FloatTensor).to(device)
         # Compute Q(s_t, a)
         qvalue_batch = self.policy_net(state_batch, action_batch)
@@ -159,8 +165,8 @@ class AgentParamRNN(nn.Module):
             if experience[4]:
                 y_qvalue_batch.append(reward_batch[i])
             else:
-                cur_state = torch.from_numpy(experience[3][2]).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0).to(device)
-                candidates = list(set(experience[3][4])-set(experience[3][3]))
+                cur_state = torch.from_numpy(experience[3][3]).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0).to(device)
+                candidates = list(set(experience[3][5])-set(experience[3][4]))
                 qvalues = []
                 for k in candidates:
                     cur_action = torch.from_numpy(experience[3][0][k]).type(torch.FloatTensor).unsqueeze(0).to(device)
