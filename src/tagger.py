@@ -1,7 +1,6 @@
 import math
 import random
 import numpy as np
-import scipy
 import pickle
 import sys
 from gensim.models import KeyedVectors
@@ -192,6 +191,22 @@ class CrfModel(object):
     
     def get_parameter_matrix(self):
         loc = {'0':0, '-1':1, '+1':2}
+        if self.feature == 'separate':
+            paras1 = np.zeros(shape=(len(loc), len(self.word_dict), len(self.label_dict)))
+            paras2 = np.zeros(shape=(len(self.label_dict), len(self.label_dict)))
+            for (attr, label), weight in self.crf.state_features_.items():
+                attr = attr.split(":")
+                dim0 = loc[attr[0]]
+                dim1 = self.word_dict[':'.join(attr[2:])]
+                dim2 = self.label_dict[label]
+                paras1[dim0][dim1][dim2] = weight
+
+            for (label_from, label_to), weight in self.crf.transition_features_.items():
+                dim1 = self.label_dict[label_from]
+                dim2 = self.label_dict[label_to]
+                paras2[dim1][dim2] = weight
+            return (paras1, paras2)
+
         if self.feature == 'all':
             paras = np.zeros(shape=(len(loc) * len(self.word_dict) + len(self.label_dict), len(self.label_dict)))
             for (attr, label), weight in self.crf.state_features_.items():
@@ -222,10 +237,10 @@ class CrfModel(object):
         x = [self.char2feature(sequence[0], i) for i in range(len(sequence[0]))]
         label_list = self.crf.tagger_.labels()
         self.crf.tagger_.set(x)
-        marginals = np.zeros(shape=(self.max_len, len(self.label_dict)))
+        marginals = np.zeros(shape=(len(self.label_dict), self.max_len))
         for i in range(len(x)):
             for lbl in label_list:
-                marginals[i][self.label_dict[lbl]] = self.crf.tagger_.marginal(lbl, i)
+                marginals[self.label_dict[lbl]][i] = self.crf.tagger_.marginal(lbl, i)
         return marginals
     
     def get_label_size(self):
@@ -233,8 +248,5 @@ class CrfModel(object):
 
     def get_para_shape(self):
         self.train()
-        return self.get_parameter_matrix().shape
+        return self.get_parameter_matrix()[0].shape, self.get_parameter_matrix()[1].shape
     
-    def get_trellis_shape(self):
-        marginals = np.zeros(shape=(self.max_len, len(self.label_dict)))
-        return marginals.shape

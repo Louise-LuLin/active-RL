@@ -69,7 +69,7 @@ class LabelEnv:
         random.shuffle(self.scope)
         init = int(0.5 * len(self.scope))
         self.queried = [self.scope[i] for i in range(init)]
-        self.set_tagger([self.train_list[i] for i in self.queried])
+        self.set_tagger([self.train_list[self.scope[i]] for i in range(init)])
         self.acc = self.reweight_acc()
         self.terminal = False
         
@@ -85,7 +85,7 @@ class LabelEnv:
         self.seq_confidences = []
         self.seq_trellis = []
         for seq in self.train_list:
-            self.seq_confidences.append(np.array([self.tagger.compute_confidence(seq)]))
+            self.seq_confidences.append(self.tagger.compute_confidence(seq))
             self.seq_trellis.append(self.tagger.get_marginal_matrix(seq))
         # construct parameter matrix for current tagger
         self.tagger_para = self.tagger.get_parameter_matrix()
@@ -105,7 +105,7 @@ class LabelEnv:
         self.seq_confidences = []
         self.seq_trellis = []
         for seq in self.train_list:
-            self.seq_confidences.append(np.array([self.tagger.compute_confidence(seq)]))
+            self.seq_confidences.append(self.tagger.compute_confidence(seq))
             self.seq_trellis.append(self.tagger.get_marginal_matrix(seq))
         # construct parameter matrix for current tagger
         self.tagger_para = self.tagger.get_parameter_matrix()

@@ -31,7 +31,7 @@ print ("== Cuda: {} ===".format(torch.cuda.is_available()))
 # parser definition
 parser = argparse.ArgumentParser(description='Tune sequence active learning')
 parser.add_argument('-b', '--budget', type=int, help='budget size', default=75)                
-parser.add_argument('-f', '--feature', choices=['all', 'node', 'edge'], help='choose features', default='all') # test/decode TBD
+parser.add_argument('-f', '--feature', choices=['all', 'node', 'edge', 'separate'], help='choose features', default='separate') # test/decode TBD
 parser.add_argument('-g', '--greedy', help='top m test instances', default='rand')
 parser.add_argument('-r', '--reward', help='shifted reward strategy', default='valid2V')
 parser.add_argument('-s', '--source', help='dataset', default='sod')                
@@ -40,7 +40,7 @@ parser.add_argument('-d', '--decay', type=int, help='loop decay', default=3)
 parser.add_argument('-n', '--hidden', type=int, help='rnn hidden size', default=64)
 parser.add_argument('-w', '--word2vec', type=int, help='use word2vec', default=0)
 parser.add_argument('-x', '--replaceX', type=int, help='use x to replace digit', default=1)
-parser.add_argument('-e', '--cuda', default='2')
+parser.add_argument('-e', '--cuda', default='1')
 
 args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda
@@ -64,6 +64,7 @@ BUDGET = args.budget
 max_len = dataloader.get_max_len()
 embedding_size = dataloader.get_embed_size()
 parameter_shape = crf.get_para_shape()
+status_shape, trans_shape = parameter_shape
 print ("max_len is: {}".format(max_len))
 print ("crf para size: {}".format(parameter_shape))
 
@@ -73,7 +74,7 @@ action_mark_list = []
 prob_list = []
 for seed in samples:
     env = LabelEnv(dataloader, crf, seed, VALID_N, TEST_N, TRAIN_N, REWEIGHT, BUDGET)
-    agent = AgentParamRNN(GEEDY, max_len, embedding_size, parameter_shape)
+    agent = AgentParamRNN(GEEDY, max_len, embedding_size, status_shape, trans_shape)
     
     print (">>>> Start play")
     step = 0
@@ -111,6 +112,7 @@ acc_valid_list = [env.acc_trace[i][1] for i in cost_list]
 
 num = "num" if NUM_FLAG else ""
 emb = "embed" if EMBED_FLAG else ""
+#filename = "./results_run/record"
 filename = "./results_run/" + SOURCE + num + emb + "_" + str(BUDGET) + "bgt_" + GEEDY + "_" + REWEIGHT + "_" + FEAT
 
 with open(filename + ".bin", "wb") as result:
