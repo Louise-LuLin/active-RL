@@ -9,11 +9,11 @@ from sklearn.feature_extraction.text import CountVectorizer as CV
 import re
 
 from tagger import CrfModel
-from data_loader import BuildDataLoader
+from data_loader import DataLoader
 
 class LabelEnv:
     def __init__(self, args, mode):
-        self.dataloader = BuildDataLoader(args.data, args.folder, args.num_flag, args.embed_flag, args.seed_data)
+        self.dataloader = DataLoader(args.data, args.folder, args.num_flag, args.embed_flag, args.seed_data)
         self.data = self.dataloader.sequence
         
         # initialize unlabeled/validation/test set

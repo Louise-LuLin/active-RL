@@ -29,6 +29,9 @@ class ParamRNN(nn.Module):
         filter_size = args.cnn_flt_size
         stride = args.cnn_stride
         
+        # set random seed
+        self.random = random.Random(args.seed_agent)
+        
         para_h, para_w = parameter_shape
         # CNN for CRF parameters
         self.conv1 = nn.Conv2d(
@@ -82,32 +85,31 @@ class ParamRNN(nn.Module):
         return self.fc(x) # flatten the output
     
     
-    def get_action(self, observation):
+    def get_action(self, state):
         self.eval()
-        # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, self.queried]
-        seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, scope = observation
+        # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, train, rest_budget]
+        seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
         candidates = list(set(scope)-set(queried))
         
         # use TE to explore
-        conf_tmp = [seq_confidences[i][0] for i in candidates]
-        max_idx = candidates[np.argmax(conf_tmp)]
+        max_idx = candidates[np.argmax([seq_confidence[i][0] for i in candidates])]
         
-        tagger_para_ts = torch.from_numpy(tagger_para).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0)
-        seq_embed_ts = torch.from_numpy(seq_embeddings[max_idx]).type(torch.FloatTensor).unsqueeze(0)
-        max_q_value = self.forward(tagger_para_ts, seq_embed_ts)
+        para_ts = torch.from_numpy(tagger_para).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0)
+        embed_ts = torch.from_numpy(seq_embedding[max_idx]).type(torch.FloatTensor).unsqueeze(0)
+        max_qvalue = self.forward(para_ts, embed_ts)
 #         eps_threshold = EPS_END + (EPS_START - EPS_END) * \
 #             math.exp(-1. * self.time_step / EPS_DECAY)
         eps_threshold = 0.3
     
-        if random.random() < eps_threshold:
-            return (0, max_idx, max_q_value)
+        if self.random.random() < eps_threshold:
+            return (0, max_idx, max_qvalue)
 
         for i in candidates:
-            seq_embed_ts = torch.from_numpy(seq_embeddings[i]).type(torch.FloatTensor).unsqueeze(0)
-            q_value = self.forward(tagger_para_ts, seq_embed_ts)
-            if max_q_value < q_value:
-                max_q_value = q_value
+            embed_ts = torch.from_numpy(seq_embedding[i]).type(torch.FloatTensor).unsqueeze(0)
+            qvalue = self.forward(para_ts, embed_ts)
+            if max_qvalue < qvalue:
+                max_qvalue = qvalue
                 max_idx = i
-        return (1, max_idx, max_q_value)
+        return (1, max_idx, max_qvalue)
 
 

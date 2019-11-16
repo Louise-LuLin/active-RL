@@ -16,65 +16,79 @@ from collections import deque
 from agent import ParamRNN
 from environment import LabelEnv
 
-MAX_EP = 50
+# max episode for training
+MAX_TRAIN_EP = 100
+# max episode for testing
+MAX_TEST_EP = 10
+# step of update lnet (and push to gnet)
 UPDATE_GLOBAL_ITER = 10
-GAMMA = 0.999 # decay rate of past observation
-TARGET_UPDATE_ITER = 10  # timesteps to observe before training
-REPLAY_MEMORY_SIZE = 50  # number of previous transitions to remember
-BATCH_SIZE = 5  # size of minibatch
-MAX_GD_NORM = 10    
+# decay rate of past observation
+GAMMA = 0.999
+# step of update target net
+UPDATE_TARGET_ITER = 10
+# number of previous transitions to remember
+REPLAY_BUFFER_SIZE = 50
+# size of minibatch
+BATCH_SIZE = 5 
 
-
-def record(global_ep, global_ep_r, ep_r, res_queue, pid):
-    with global_ep.get_lock():
-        global_ep.value += 1
-    with global_ep_r.get_lock():
-        if global_ep_r.value == 0.:
-            global_ep_r.value = ep_r
-        else:
-            global_ep_r.value = global_ep_r.value * 0.99 + ep_r * 0.01
-    res_queue.put(global_ep_r.value)
-    print("*** cpu {} complete ep {} | ep_r={}".format(pid, global_ep.value, global_ep_r.value))
-    
-class Trainer(mp.Process):
-    def __init__(self, device, gnet, opt, args, global_ep, global_ep_r, res_queue, pid, seed):
+class Worker(mp.Process):
+    def __init__(self, mode, device, gnet, opt, args, global_ep, global_ep_r, res_queue, pid):
         super(Worker, self).__init__()
+        self.mode = mode
         self.device = device
         self.id = pid
         self.g_ep, self.g_ep_r, self.res_queue = global_ep, global_ep_r, res_queue
         self.gnet, self.opt = gnet, opt
-        self.env = LabelEnv(args, 'train')
-        self.lnet = ParamRNN(self.env, args).to(self.device)     # local network
+        self.env = LabelEnv(args, self.mode)
+        self.lnet = ParamRNN(self.env, args).to(self.device)
+        self.lnet.load_state_dict(self.gnet.state_dict())
         self.target_net = copy.deepcopy(self.lnet)
         # replay memory
-        self.random = random.Random(seed)
+        self.random = random.Random(self.id + args.seed_batch)
         self.buffer = deque()
         self.time_step = 0
         
     def run(self):        
         total_step = 1
-        while self.g_ep.value < MAX_EP:
-            state = self.env.start(episode + self.id)
+        ep = 1
+        max_ep = MAX_TRAIN_EP if self.mode == 'train' else MAX_TEST_EP
+        while self.g_ep.value < max_ep:
+            state = self.env.start(self.id + ep)
             ep_r = 0
-            while true:
+            res_cost = []
+            res_qvalue = []
+            res_r = []
+            res_acc_test = []
+            res_acc_valid = []
+            while True:
+                # play one step
                 greedy_flag, action, qvalue = self.lnet.get_action(state)
                 reward, state2, done = self.env.feedback(action)
-                ep_r += reward
                 self.push_to_buffer(state, action, reward, state2, done)
                 state = state2
+                # record results
+                ep_r += reward
+                (acc_test, acc_valid) = self.env.eval_tagger()
+                res_cost.append(len(self.env.queried))
+                res_qvalue.append(qvalue)
+                res_r.append(ep_r)
+                res_acc_test.append(acc_test)
+                res_acc_valid.append(acc_valid)
                 # sync
                 if total_step % UPDATE_GLOBAL_ITER == 0 or done:
                     self.update()
                     print ("-- cpu {}: ep={}, left={}".format(self.id, self.g_ep.value, state[-1]))
                 if done:
-                    record(self.g_ep, self.g_ep_r, ep_r, self.res_queue, self.pid)
+                    self.record(res_cost, res_qvalue, res_r, res_acc_test, res_acc_valid)
+                    ep += 1
+                    break
                 total_step += 1
         self.res_queue.put(None)
     
     # push new experience to the buffer
     def push_to_buffer(self, state, action, reward, state2, done):
         self.buffer.append((state, action, reward, state2, done))
-        if len(self.buffer) > REPLAY_MEMORY_SIZE:
+        if len(self.buffer) > REPLAY_BUFFER_SIZE:
             self.buffer.popleft()
     
     # construct training batch (of y and qvalue)
@@ -125,8 +139,20 @@ class Trainer(mp.Process):
         # pull gnet's parameters to local
         self.lnet.load_state_dict(self.gnet.state_dict())
         # update target_net
-        if self.time_step % TARGET_UPDATE == 0:
+        if self.time_step % UPDATE_TARGET_ITER == 0:
             self.target_net = copy.deepcopy(self.lnet)
         self.time_step += 1
         
-    
+    def record(self, res_cost, res_qvalue, res_r, res_acc_test, res_acc_valid):
+        with self.g_ep.get_lock():
+            self.g_ep.value += 1
+        res = (self.g_ep.value, res_cost, res_qvalue, res_r, res_acc_test, res_acc_valid)
+        self.res_queue.put(res)
+        # monitor
+        with self.g_ep_r.get_lock():
+            if self.g_ep_r.value == 0.:
+                self.g_ep_r.value = res_r[-1]
+            else:
+                self.g_ep_r.value = self.g_ep_r.value * 0.9 + res_r[-1] * 0.1
+        print("*** cpu {} complete ep {} | ep_r={}".format(self.pid, self.g_ep.value, self.g_ep_r.value))
+   

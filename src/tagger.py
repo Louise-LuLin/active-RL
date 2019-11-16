@@ -9,7 +9,6 @@ from sklearn_crfsuite import CRF
 
 # CRF
 class CrfModel(object):
-    
     def __init__(self, dataloader, feature):
         self.label_dict = dataloader.label_dict
         self.word_dict = dataloader.word_dict
@@ -27,9 +26,9 @@ class CrfModel(object):
         self.X_train=[]
         self.Y_train=[]
     
-        print ('=== Tagger initialized ===')
-        print ('-- label dict size: {}'.format(len(self.label_dict)))
-        print ('-- word dict size: {}'.format(len(self.word_dict)))
+#         print ('=== Tagger initialized ===')
+#         print ('-- label dict size: {}'.format(len(self.label_dict)))
+#         print ('-- word dict size: {}'.format(len(self.word_dict)))
         
     def reset(self):
         self.X_train=[]
@@ -96,7 +95,8 @@ class CrfModel(object):
         x = [self.char2feature(sequence[0], i) for i in range(len(sequence[0]))]
         y_pred = self.crf.tagger_.tag(x)
         conf = self.crf.tagger_.probability(y_pred)
-        conf_norm = pow(conf, 1. / len(y_pred))
+#         conf_norm = pow(conf, 1. / len(y_pred))
+        conf_norm = math.exp(math.log(self.crf.tagger_.probability(y_pred)) / len(y_pred))
         return conf_norm
     
     def compute_point_confidence(self, sequence):
