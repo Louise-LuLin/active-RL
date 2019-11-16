@@ -6,7 +6,10 @@ from gensim.models import KeyedVectors
 # Sequence Loader
 class BuildDataLoader:
     
-    def __init__(self, source, folder, num_flag, embed_flag):
+    def __init__(self, source, folder, num_flag, embed_flag, seed):
+        """
+        load data, shuffle and split to online/offline, generate embedding for each seq
+        """
         self.folder = folder
         self.num_flag = num_flag
         self.embed_flag = embed_flag
@@ -17,7 +20,7 @@ class BuildDataLoader:
         self.label_dict = {}
         
         # load seq data
-        with open(folder + ".all", 'r') as file:
+        with open(folder + source + ".all", 'r') as file:
             x=[]
             y=[]
             for line in file:
@@ -29,7 +32,7 @@ class BuildDataLoader:
                 else:
                     char, label = line.split('\t')
                     if self.num_flag and char.replace('.','').isdigit():
-                        char = 'NUM'
+                        char = 'x'
                     x.append(char)
                     y.append(label)
                     if char not in self.word_dict:
@@ -37,6 +40,12 @@ class BuildDataLoader:
                     if label not in self.label_dict:
                         self.label_dict[label] = len(self.label_dict)
                         
+        # shuffle and split into off/online set
+        random.Random(seed).shuffle(self.sequence)
+        self.offline_idx = range(400)
+        self.online_idx = range(400, 800)
+        self.test_idx = range(800, 1000)
+         
         # calculate the maximum length of all sequences            
         lens = [len(seq[0]) for seq in self.sequence]
         self.max_len = max(lens)
@@ -45,28 +54,25 @@ class BuildDataLoader:
         self.w_embeddings = {}
         if self.embed_flag:
             num_str = "NUM" if self.num_flag else ""
-            wv = KeyedVectors.load(self.folder + "word2vec" + num_str + ".kv", mmap='r')
+            wv = KeyedVectors.load(self.folder + source + "word2vec" + num_str + ".kv", mmap='r')
             for k in wv.vocab:
-                    self.w_embeddings[k] = wv[k]
+                self.w_embeddings[k] = wv[k]
         else:
             for k, v in self.word_dict.items():
                 embed = np.zeros(shape=(len(self.word_dict)))
                 embed[v] = 1
                 self.w_embeddings[k] = embed
                 
-        print ("=== data loading ===")
-        print ("word dict size: {}".format(len(self.word_dict)))
-        print ("label dict size: {}".format(len(self.label_dict)))
-        print ("Replace digit with NUM: {}".format(str(self.num_flag)))
-        print ("use embedding: {}".format(str(self.embed_flag)))
-        print ("embedding size: {}".format(self.get_embed_size()))
-        print ("number of instances: {}".format(len(self.sequence)))
+#         print ("=== data loading ===")
+#         print ("word dict size: {}".format(len(self.word_dict)))
+#         print ("label dict size: {}".format(len(self.label_dict)))
+#         print ("Replace digit with NUM: {}".format(str(self.num_flag)))
+#         print ("use embedding: {}".format(str(self.embed_flag)))
+#         print ("embedding size: {}".format(self.get_embed_size()))
+#         print ("number of instances: {}".format(len(self.sequence)))
     
-    def shuffle(self, seed = 4):
-        self.random = random.Random(seed)
-        self.random.shuffle(self.sequence)
     
-    def get_embedding(self, sequence):
+    def get_embedding(self, sequence): #sequence=(x, y)
         embeddings = np.zeros(shape=(self.max_len, self.get_embed_size()))
         for i, char in enumerate(sequence[0]):
             embeddings[i] = self.w_embeddings[char]
