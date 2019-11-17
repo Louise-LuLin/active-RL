@@ -4,7 +4,7 @@ import scipy
 from gensim.models import KeyedVectors
 
 # Sequence Loader
-class BuildDataLoader:
+class DataLoader:
     
     def __init__(self, source, folder, num_flag, embed_flag, seed):
         """
@@ -42,9 +42,9 @@ class BuildDataLoader:
                         
         # shuffle and split into off/online set
         random.Random(seed).shuffle(self.sequence)
-        self.offline_idx = range(400)
-        self.online_idx = range(400, 800)
-        self.test_idx = range(800, 1000)
+        self.offline_idx = [i for i in range(400)]
+        self.online_idx = [i for i in range(400, 800)]
+        self.test_idx = [i for i in range(800, 1000)]
          
         # calculate the maximum length of all sequences            
         lens = [len(seq[0]) for seq in self.sequence]

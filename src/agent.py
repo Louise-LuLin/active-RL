@@ -85,18 +85,18 @@ class ParamRNN(nn.Module):
         return self.fc(x) # flatten the output
     
     
-    def get_action(self, state):
-        self.eval()
+    def get_action(self, state, device):
+#         self.eval()
         # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, train, rest_budget]
         seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
-        candidates = list(set(scope)-set(queried))
+        candidates = [i for i, idx in enumerate(scope) if idx not in queried]
         
         # use TE to explore
         max_idx = candidates[np.argmax([seq_confidence[i][0] for i in candidates])]
         
-        para_ts = torch.from_numpy(tagger_para).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0)
-        embed_ts = torch.from_numpy(seq_embedding[max_idx]).type(torch.FloatTensor).unsqueeze(0)
-        max_qvalue = self.forward(para_ts, embed_ts)
+        para_ts = torch.from_numpy(tagger_para).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0).to(device)
+        embed_ts = torch.from_numpy(seq_embedding[max_idx]).type(torch.FloatTensor).unsqueeze(0).to(device)
+        max_qvalue = self.forward(para_ts, embed_ts).detach().item()
 #         eps_threshold = EPS_END + (EPS_START - EPS_END) * \
 #             math.exp(-1. * self.time_step / EPS_DECAY)
         eps_threshold = 0.3
@@ -106,7 +106,7 @@ class ParamRNN(nn.Module):
 
         for i in candidates:
             embed_ts = torch.from_numpy(seq_embedding[i]).type(torch.FloatTensor).unsqueeze(0)
-            qvalue = self.forward(para_ts, embed_ts)
+            qvalue = self.forward(para_ts, embed_ts).detach().item()
             if max_qvalue < qvalue:
                 max_qvalue = qvalue
                 max_idx = i

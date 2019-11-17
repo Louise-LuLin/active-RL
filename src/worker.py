@@ -16,12 +16,8 @@ from collections import deque
 from agent import ParamRNN
 from environment import LabelEnv
 
-# max episode for training
-MAX_TRAIN_EP = 100
-# max episode for testing
-MAX_TEST_EP = 10
 # step of update lnet (and push to gnet)
-UPDATE_GLOBAL_ITER = 10
+UPDATE_GLOBAL_ITER = 5
 # decay rate of past observation
 GAMMA = 0.999
 # step of update target net
@@ -47,12 +43,13 @@ class Worker(mp.Process):
         self.random = random.Random(self.id + args.seed_batch)
         self.buffer = deque()
         self.time_step = 0
+        # episode
+        self.max_ep = args.episode_train if self.mode == 'train' else args.episode_test
         
     def run(self):        
         total_step = 1
         ep = 1
-        max_ep = MAX_TRAIN_EP if self.mode == 'train' else MAX_TEST_EP
-        while self.g_ep.value < max_ep:
+        while self.g_ep.value < self.max_ep:
             state = self.env.start(self.id + ep)
             ep_r = 0
             res_cost = []
@@ -62,7 +59,8 @@ class Worker(mp.Process):
             res_acc_valid = []
             while True:
                 # play one step
-                greedy_flag, action, qvalue = self.lnet.get_action(state)
+#                 print ("{} {}, eps {}, cost {}".format(self.device, self.id, self.g_ep.value, len(self.env.queried)))
+                greedy_flag, action, qvalue = self.gnet.get_action(state, self.device)
                 reward, state2, done = self.env.feedback(action)
                 self.push_to_buffer(state, action, reward, state2, done)
                 state = state2
@@ -77,7 +75,7 @@ class Worker(mp.Process):
                 # sync
                 if total_step % UPDATE_GLOBAL_ITER == 0 or done:
                     self.update()
-                    print ("-- cpu {}: ep={}, left={}".format(self.id, self.g_ep.value, state[-1]))
+                    print ("--{} {}: ep={}, left={}".format(self.device, self.id, self.g_ep.value, state[-1]))
                 if done:
                     self.record(res_cost, res_qvalue, res_r, res_acc_test, res_acc_valid)
                     ep += 1
@@ -108,12 +106,12 @@ class Worker(mp.Process):
                 y_batch.append(r_batch[i])
             else:
                 s_t = torch.from_numpy(e[3][3]).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0).to(self.device)
-                candidates = list(set(e[3][5])-set(e[3][4]))
+                candidates = [k for k, idx in enumerate(e[3][5]) if idx not in e[3][4]]
                 q_values = []
                 for k in candidates:
                     a = torch.from_numpy(e[3][0][k]).type(torch.FloatTensor).unsqueeze(0).to(self.device)
-                    q = self.target_net(s_t, a)
-                    q_values.append(q.cpu().detach().item())
+                    q = self.target_net(s_t, a).detach().item()
+                    q_values.append(q)
                 y_batch.append(max(q_values) * GAMMA + r_batch[i])
         y_batch = torch.from_numpy(np.array(y_batch)).type(torch.FloatTensor).to(self.device)
         return q_batch, y_batch
@@ -154,5 +152,5 @@ class Worker(mp.Process):
                 self.g_ep_r.value = res_r[-1]
             else:
                 self.g_ep_r.value = self.g_ep_r.value * 0.9 + res_r[-1] * 0.1
-        print("*** cpu {} complete ep {} | ep_r={}".format(self.pid, self.g_ep.value, self.g_ep_r.value))
+        print("*** {} {} complete ep {} | ep_r={}".format(self.device, self.pid, self.g_ep.value, self.g_ep_r.value))
    

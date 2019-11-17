@@ -4,7 +4,6 @@ import copy
 import numpy as np
 from tqdm import tqdm
 import scipy
-from scipy.special import softmax
 from sklearn.feature_extraction.text import CountVectorizer as CV
 import re
 
@@ -109,7 +108,8 @@ class LabelEnv:
         target_ratio = self.gen_dataDistr([self.data[i] for i in target_idx])
         accs_reweighted = []
         norms = []
-        for i, seq in enumerate(source_seqs):
+        for i in source_idx:
+            seq = self.data[i]
             _, _, _, acc = self.tagger.evaluate_acc([seq])
             if self.reweight.endswith('x'):
                 x = ",".join(str(char) for char in seq[0])
@@ -147,7 +147,7 @@ class LabelEnv:
             iterator.close()
             raise
         iterator.close()
-        sim_weight = softmax(np.sum(sim2test_matrix, axis=1) / sim2test_matrix.shape[1])
+        sim_weight = scipy.special.softmax(np.sum(sim2test_matrix, axis=1) / sim2test_matrix.shape[1])
         return sim_weight
 
     # Vectorize a set of string by n-grams.
