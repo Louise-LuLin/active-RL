@@ -13,7 +13,7 @@ import numpy as np
 import copy
 from collections import deque
 
-from agent import ParamRNN
+from agent import ParamRNN, ParamRNNBudget, TrellisCNN
 from environment import LabelEnv
 
 # step of update lnet (and push to gnet)
@@ -36,7 +36,12 @@ class Worker(mp.Process):
         self.g_ep, self.g_ep_r, self.res_queue = global_ep, global_ep_r, res_queue
         self.gnet, self.opt = gnet, opt
         self.env = LabelEnv(args, self.mode)
-        self.lnet = ParamRNN(self.env, args).to(self.device)
+        if args.model == 'ParamRNN':
+            self.lnet = ParamRNN(self.env, args).to(self.device)
+        elif args.model == 'ParamRNNBudget':
+            self.lnet = ParamRNNBudget(self.env, args).to(self.device)
+        elif args.model == 'TrellisCNN':
+            self.lnet = TrellisCNN(self.env, args).to(self.device)
         self.lnet.load_state_dict(self.gnet.state_dict())
         self.target_net = copy.deepcopy(self.lnet)
         # replay memory
@@ -78,6 +83,11 @@ class Worker(mp.Process):
                     print ("--{} {}: ep={}, left={}".format(self.device, self.id, self.g_ep.value, state[-1]))
                 if done:
                     self.record(res_cost, res_qvalue, res_r, res_acc_test, res_acc_valid)
+                    print ('cost: {}'.format(res_cost))
+                    print ('qvalue: {}'.format(res_qvalue))
+                    print ('reward: {}'.format(res_r))
+                    print ('acc_test: {}'.format(res_acc_test))
+                    print ('acc_valid: {}'.format(res_acc_valid))
                     ep += 1
                     break
                 total_step += 1
