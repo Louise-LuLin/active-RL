@@ -87,6 +87,8 @@ class ParamRNN(nn.Module):
         self.eval()
         # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, train, rest_budget]
         seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
+        # note: index in training set
+        #       index in data should be: scope[i] for i in candidates
         candidates = [i for i, idx in enumerate(scope) if idx not in queried]
         
         # use TE to explore

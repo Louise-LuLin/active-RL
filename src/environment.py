@@ -78,8 +78,9 @@ class LabelEnv:
                        self.queried, self.train, self.budget-len(self.queried)]
         return observation
  
-    def feedback(self, new_seq_idx):
+    def feedback(self, new_idx):
         # reward
+        new_seq_idx = self.train[new_idx]
         self.tagger.add_instances([self.data[new_seq_idx]])
         self.tagger.train()
         new_acc = self.reweight_acc()
