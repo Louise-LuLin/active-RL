@@ -58,14 +58,15 @@ class Worker(mp.Process):
             state = self.env.start(self.id + ep)
             ep_r = 0
             res_cost = []
+            res_explore = []
             res_qvalue = []
-            res_r = []
+            res_reward = []
             res_acc_test = []
             res_acc_valid = []
             while True:
                 # play one step
 #                 print ("{} {}, eps {}, cost {}".format(self.device, self.id, self.g_ep.value, len(self.env.queried)))
-                greedy_flag, action, qvalue = self.gnet.get_action(state, self.device)
+                explore_flag, action, qvalue = self.gnet.get_action(state, self.device)
                 reward, state2, done = self.env.feedback(action)
                 self.push_to_buffer(state, action, reward, state2, done)
                 state = state2
@@ -73,8 +74,9 @@ class Worker(mp.Process):
                 ep_r += reward
                 (acc_test, acc_valid) = self.env.eval_tagger()
                 res_cost.append(len(self.env.queried))
+                res_explore.append(explore_flag)
                 res_qvalue.append(qvalue)
-                res_r.append(ep_r)
+                res_reward.append(ep_r)
                 res_acc_test.append(acc_test)
                 res_acc_valid.append(acc_valid)
                 # sync
@@ -82,7 +84,7 @@ class Worker(mp.Process):
                     self.update()
                     print ("--{} {}: ep={}, left={}".format(self.device, self.id, self.g_ep.value, state[-1]))
                 if done:
-                    self.record(res_cost, res_qvalue, res_r, res_acc_test, res_acc_valid)
+                    self.record(res_cost, res_explore, res_qvalue, res_reward, res_acc_test, res_acc_valid)
                     print ('cost: {}'.format(res_cost))
                     print ('qvalue: {}'.format(res_qvalue))
                     print ('reward: {}'.format(res_r))
@@ -151,16 +153,16 @@ class Worker(mp.Process):
             self.target_net = copy.deepcopy(self.lnet)
         self.time_step += 1
         
-    def record(self, res_cost, res_qvalue, res_r, res_acc_test, res_acc_valid):
+    def record(self, res_cost, res_explore, res_qvalue, res_reward, res_acc_test, res_acc_valid):
         with self.g_ep.get_lock():
             self.g_ep.value += 1
-        res = (self.g_ep.value, res_cost, res_qvalue, res_r, res_acc_test, res_acc_valid)
+        res = (self.g_ep.value, res_cost, res_explore, res_qvalue, res_reward, res_acc_test, res_acc_valid)
         self.res_queue.put(res)
         # monitor
         with self.g_ep_r.get_lock():
             if self.g_ep_r.value == 0.:
-                self.g_ep_r.value = res_r[-1]
+                self.g_ep_r.value = res_reward[-1]
             else:
-                self.g_ep_r.value = self.g_ep_r.value * 0.9 + res_r[-1] * 0.1
+                self.g_ep_r.value = self.g_ep_r.value * 0.9 + res_reward[-1] * 0.1
         print("*** {} {} complete ep {} | ep_r={}".format(self.device, self.pid, self.g_ep.value, self.g_ep_r.value))
    
