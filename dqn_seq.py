@@ -11,6 +11,7 @@ import pickle
 import scipy
 from scipy.special import softmax
 import sys
+import time
 from sklearn.feature_extraction.text import CountVectorizer as CV
 import re
 import copy
@@ -41,45 +42,26 @@ class BuildDataLoader:
         self.embed_flag = embed_flag
         self.folder = folder
 
-        if source == 'conll':
-            with open(folder + "train.txt", 'r') as file:
-                x=[]
-                y=[]
-                for line in file:
-                    tokens = line.replace("\n",'').split()
-                    if len(tokens) < 1:
-                        self.sequence.append((x,y))
-                        x = []
-                        y = []
-                    else:
-                        char = tokens[0]
-                        label = tokens[2]
-                        if self.num_flag and char.replace('.','').isdigit():
-                            char = 'NUM'
-                        x.append(char)
-                        y.append(label)
-                        if char not in self.word_dict:
-                            self.word_dict[char] = len(self.word_dict)
-                        if label not in self.label_dict:
-                            self.label_dict[label] = len(self.label_dict)
-        else:
-            with open(folder + '_string.txt', 'r') as x_file, open(folder + '_label.txt', 'r') as y_file: 
-                for x, y in zip(x_file, y_file):
-                    x = [char for char in x.replace("\n",'')]
-                    y = y.replace("\n",'').split(',')
-                    if(len(y) > 1):
-                        if len(y[-1]) == 0:
-                            y = y[:-1]
-                        if self.num_flag:
-                            for i in range(len(x)):
-                                if x[i].isdigit():
-                                    x[i] = 'x'
-                        for char, label in zip(x, y):
-                            if char not in self.word_dict:
-                                self.word_dict[char] = len(self.word_dict)
-                            if label not in self.label_dict:
-                                self.label_dict[label] = len(self.label_dict)
-                        self.sequence.append((x, y))
+        # load seq data
+        with open(folder + ".all", 'r') as file:
+            x=[]
+            y=[]
+            for line in file:
+                line = line.replace("\n",'')
+                if line == "":
+                    self.sequence.append((x,y))
+                    x = []
+                    y = []
+                else:
+                    char, label = line.split('\t')
+                    if self.num_flag and char.replace('.','').isdigit():
+                        char = 'NUM'
+                    x.append(char)
+                    y.append(label)
+                    if char not in self.word_dict:
+                        self.word_dict[char] = len(self.word_dict)
+                    if label not in self.label_dict:
+                        self.label_dict[label] = len(self.label_dict)
     
     def shuffle(self, seed = 4):
         random.Random(4).shuffle(self.sequence)
@@ -442,9 +424,9 @@ def select_action(state, sequences, greedy_select):
             (prob_per_token, prob_sum) = crf.compute_entropy(seq)
             prob_list.append(prob_sum/len(seq[1]))
         # normalize
-        mean_prob = np.mean(prob_list)
-        std_prob = np.std(prob_list)
-        prob_list = [(prob_list[i] - mean_prob) / std_prob for i in range(len(sequences))]
+#         mean_prob = np.mean(prob_list)
+#         std_prob = np.std(prob_list)
+#         prob_list = [(prob_list[i] - mean_prob) / std_prob for i in range(len(sequences))]
         max_idx = np.argsort(np.array(prob_list), kind='mergesort').tolist()[::-1][0]
     
     max_q_value = policy_net(state, data.seqs2Tensor(sequences[max_idx]))
@@ -603,7 +585,7 @@ parser = argparse.ArgumentParser(description='Tune sequence active learning')
 parser.add_argument('-a', '--agentpre', type=int, help='agent pretrain size', default=15)                
 parser.add_argument('-b', '--budget', type=int, help='budget size', default=75)                
 parser.add_argument('-f', '--feature', choices=['all', 'node', 'edge'], help='choose features', default='all') # test/decode TBD
-parser.add_argument('-g', '--greedy', help='top m test instances', default='rand')
+parser.add_argument('-g', '--greedy', help='top m test instances', default='te')
 parser.add_argument('-r', '--reward', help='shifted reward strategy', default='valid2V')
 parser.add_argument('-s', '--source', help='dataset', default='sod')                
 parser.add_argument('-l', '--loop', type=int, help='loop size', default=20)
@@ -621,7 +603,7 @@ args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda
 
 # Train Q-function
-BATCH_SIZE = 5
+BATCH_SIZE = 32
 GAMMA = 0.999
 EPS_START = 0.9
 EPS_END = 0.05
@@ -629,10 +611,7 @@ EPS_DECAY = 20
 TARGET_UPDATE = 20
 
 SOURCE = args.source
-if SOURCE == 'conll':
-    DATA_PATH = "./datasets/conll2000/" + SOURCE
-else:
-    DATA_PATH = "./datasets/building/" + SOURCE
+DATA_PATH = "./datasets/" + SOURCE
 CRF_PRETRAIN_SIZE = 5
 AGENT_PRETRAIN_SIZE = args.agentpre
 CANDIDATE_SIZE = 600
@@ -733,14 +712,14 @@ print ('DQN parameter size: {}'.format(para_size))
 
 optimizer = optim.Adam(policy_net.parameters(), lr=LR)
 
-memory = ReplayMemory(50)
+memory = ReplayMemory(100)
 
 steps_done = 0
 random.seed(8)
 
 # Pretrain the agent
 try:
-    with tqdm(range(50)) as iterator:
+    with tqdm(range(10)) as iterator:
         for i_episode in iterator:
             # Initialize the environment and state
             pretrain_agt_list = data.sequence[:AGENT_PRETRAIN_SIZE]
@@ -833,6 +812,7 @@ try:
             if cost_list[-1] > BUDGET:
                 break
 
+            time1 = time.time()
             state = crf.get_parameters()
 
             # Select and perform an action
@@ -912,6 +892,10 @@ try:
             _, _, _, acc_valid= crf.evaluate_acc(validation_list)
             acc_valid_list.append(acc_valid)
             
+            time2 = time.time()
+            print ("cost {}: queried {} with greedy {}:{}, acc=({}, {})".format(i_episode, query_idx, act_mrk, 
+                                                                            qvalue.item(), acc, acc_valid))
+            print ("time: {}".format(time2-time1))
 except KeyboardInterrupt:
     iterator.close()
     raise
@@ -922,7 +906,7 @@ print('Complete')
 num = "num" if NUM_FLAG else ""
 ini = "testIni" if not INITIAL_FLAG else ""
 emb = "embed" if EMBED_FLAG else ""
-filename = "./results/" + SOURCE + str(AGENT_PRETRAIN_SIZE) + num + emb + "_" + str(VALIDATE_SIZE) + ini + "_" + str(BUDGET) + "budget_" + TRANS + "RL" + "_" + FEAT + "_" + GREEDY + "_" + REWARD
+filename = "./results_seed8/" + SOURCE + str(AGENT_PRETRAIN_SIZE) + num + emb + "_" + str(VALIDATE_SIZE) + ini + "_" + str(BUDGET) + "budget_" + TRANS + "RL" + "_" + FEAT + "_" + GREEDY + "_" + REWARD
 filename += "_" + str(TARGET_UPDATE) + "step_" + str(BATCH_SIZE) + "batch" + str(EPS_DECAY) + "decay_" + str(LOOP_SIZE) + "loop-" + "add" + str(LOOP_INCREASE) + "each" + str(LOOP_STEP) + "step-"+ str(LOOP_CANDI)
 filename += "_" + str(RNN_HIDDEN) + "rnn_" + str(N_FILTER) + "filter_" + str(FILTER_SIZE) + "size_" + str(N_STRIDE) + "stride"
 
