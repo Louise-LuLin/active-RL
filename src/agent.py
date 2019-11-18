@@ -92,7 +92,7 @@ class ParamRNN(nn.Module):
         candidates = [i for i, idx in enumerate(scope) if idx not in queried]
         
         # use TE to explore
-        max_idx = candidates[np.argmax([seq_confidence[i][0] for i in candidates])]
+        max_idx = candidates[np.argmax([seq_confidence[i] for i in candidates])]
         
         para_ts = torch.from_numpy(tagger_para).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0).to(device)
         embed_ts = torch.from_numpy(seq_embedding[max_idx]).type(torch.FloatTensor).unsqueeze(0).to(device)
@@ -193,11 +193,11 @@ class ParamRNNBudget(nn.Module):
         candidates = [i for i, idx in enumerate(scope) if idx not in queried]
         
         # use TE to explore
-        max_idx = candidates[np.argmax([seq_confidence[i][0] for i in candidates])]
+        max_idx = candidates[np.argmax([seq_confidence[i] for i in candidates])]
         
         para_ts = torch.from_numpy(tagger_para).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0).to(device)
         embed_ts = torch.from_numpy(seq_embedding[max_idx]).type(torch.FloatTensor).unsqueeze(0).to(device)
-        budget_ts = torch.from_numpy(budget).type(torch.FloatTensor).unsqueeze(0).to(device)
+        budget_ts = torch.from_numpy(np.array([budget])).type(torch.FloatTensor).unsqueeze(0).to(device)
         max_qvalue = self.forward(para_ts, embed_ts, budget_ts).detach().item()
 #         eps_threshold = EPS_END + (EPS_START - EPS_END) * \
 #             math.exp(-1. * self.time_step / EPS_DECAY)
@@ -230,7 +230,7 @@ class TrellisCNN(nn.Module): # all
         # set random seed
         self.random = random.Random(args.seed_agent)
         
-        para_w, para_h = trellis_shape
+        para_h, para_w = trellis_shape
         
         # CNN for CRF trellis
         self.conv1 = nn.Conv2d(
@@ -301,11 +301,11 @@ class TrellisCNN(nn.Module): # all
         candidates = [i for i, idx in enumerate(scope) if idx not in queried]
 
         # use TE to explore
-        max_idx = candidates[np.argmax([seq_confidence[i][0] for i in candidates])]
+        max_idx = candidates[np.argmax([seq_confidence[i] for i in candidates])]
 
         trellis_ts = torch.from_numpy(seq_trellis[max_idx]).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0).to(device)
         embed_ts = torch.from_numpy(seq_embedding[max_idx]).type(torch.FloatTensor).unsqueeze(0).to(device)
-        conf_ts = torch.from_numpy(seq_confidences[max_idx]).type(torch.FloatTensor).unsqueeze(0).to(device)
+        conf_ts = torch.from_numpy(np.array(seq_confidence[max_idx])).type(torch.FloatTensor).unsqueeze(0).to(device)
         max_qvalue = self.forward(trellis_ts, embed_ts, conf_ts).detach().item()
 #         eps_threshold = EPS_END + (EPS_START - EPS_END) * \
 #             math.exp(-1. * self.time_step / EPS_DECAY)
@@ -317,7 +317,7 @@ class TrellisCNN(nn.Module): # all
         for i in candidates:
             trellis_ts = torch.from_numpy(seq_trellis[i]).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0).to(device)
             embed_ts = torch.from_numpy(seq_embedding[i]).type(torch.FloatTensor).unsqueeze(0).to(device)
-            conf_ts = torch.from_numpy(seq_confidences[i]).type(torch.FloatTensor).unsqueeze(0).to(device)
+            conf_ts = torch.from_numpy(np.array(seq_confidence[i])).type(torch.FloatTensor).unsqueeze(0).to(device)
             qvalue = self.forward(trellis_ts, embed_ts, conf_ts).detach().item()
             if max_qvalue < qvalue:
                 max_qvalue = qvalue
