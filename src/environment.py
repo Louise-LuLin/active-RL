@@ -16,7 +16,7 @@ class LabelEnv:
         self.data = self.dataloader.sequence
         
         # initialize unlabeled/validation/test set
-        if mode == 'train':
+        if mode == 'offline':
             self.data_idx = self.dataloader.offline_idx[:]
         else:
             self.data_idx = self.dataloader.online_idx[:]
@@ -70,7 +70,7 @@ class LabelEnv:
         seq_confidence = []
         seq_trellis = []
         for seq in [self.data[i] for i in self.train]:
-            seq_confidence.append(np.array([self.tagger.compute_confidence(seq)]))
+            seq_confidence.append(self.tagger.compute_confidence(seq))
             seq_trellis.append(self.tagger.get_marginal_matrix(seq))
         # construct parameter matrix for current tagger
         tagger_para = self.tagger.get_parameter_matrix()

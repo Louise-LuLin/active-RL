@@ -27,21 +27,16 @@ REPLAY_BUFFER_SIZE = 50
 # size of minibatch
 BATCH_SIZE = 5 
 
-class Worker(mp.Process):
+class WorkerTrellis(mp.Process):
     def __init__(self, mode, device, gnet, opt, args, global_ep, global_ep_r, res_queue, pid):
-        super(Worker, self).__init__()
+        super(WorkerTrellis, self).__init__()
         self.mode = mode
         self.device = device
         self.id = pid
         self.g_ep, self.g_ep_r, self.res_queue = global_ep, global_ep_r, res_queue
         self.gnet, self.opt = gnet, opt
         self.env = LabelEnv(args, self.mode)
-        if args.model == 'ParamRNN':
-            self.lnet = ParamRNN(self.env, args).to(self.device)
-        elif args.model == 'ParamRNNBudget':
-            self.lnet = ParamRNNBudget(self.env, args).to(self.device)
-        elif args.model == 'TrellisCNN':
-            self.lnet = TrellisCNN(self.env, args).to(self.device)
+        self.lnet = TrellisCNN(self.env, args).to(self.device)
         self.lnet.load_state_dict(self.gnet.state_dict())
         self.target_net = copy.deepcopy(self.lnet)
         # replay memory
@@ -107,10 +102,11 @@ class Worker(mp.Process):
         # experience = (state, action, reward, state2, done)
         # state = (seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, scope, rest_budget)
         minibatch = self.random.sample(self.buffer, min(len(self.buffer), batch_size))
-        s_batch = torch.from_numpy(np.array([e[0][3] for e in minibatch])).type(torch.FloatTensor).unsqueeze(1).to(self.device)
+        t_batch = torch.from_numpy(np.array([e[0][2][e[1]] for e in minibatch])).type(torch.FloatTensor).unsqueeze(1).to(self.device)
         a_batch = torch.from_numpy(np.array([e[0][0][e[1]] for e in minibatch])).type(torch.FloatTensor).to(self.device)
+        c_batch = torch.from_numpy(np.array([[e[0][1][e[1]]] for e in minibatch])).type(torch.FloatTensor).to(self.device)
         # compute Q(s_t, a)
-        q_batch = self.lnet(s_batch, a_batch)
+        q_batch = self.lnet(t_batch, a_batch, c_batch)
         # compute max Q'(s_t+1, a)
         r_batch = [e[2] for e in minibatch]
         y_batch = []
@@ -118,12 +114,13 @@ class Worker(mp.Process):
             if e[4]:
                 y_batch.append(r_batch[i])
             else:
-                s_t = torch.from_numpy(e[3][3]).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0).to(self.device)
                 candidates = [k for k, idx in enumerate(e[3][5]) if idx not in e[3][4]]
                 q_values = []
                 for k in candidates:
+                    t = torch.from_numpy(e[3][2][k]).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0).to(self.device)
                     a = torch.from_numpy(e[3][0][k]).type(torch.FloatTensor).unsqueeze(0).to(self.device)
-                    q = self.target_net(s_t, a).detach().item()
+                    c = torch.from_numpy(np.array(e[3][1][k])).type(torch.FloatTensor).unsqueeze(0).to(self.device)
+                    q = self.target_net(t, a, c).detach().item()
                     q_values.append(q)
                 y_batch.append(max(q_values) * GAMMA + r_batch[i])
         y_batch = torch.from_numpy(np.array(y_batch)).type(torch.FloatTensor).to(self.device)

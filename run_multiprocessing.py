@@ -1,12 +1,13 @@
 import sys
 sys.path.insert(1, './src')
 import os
-# os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 from environment import LabelEnv
 from agent import ParamRNN, ParamRNNBudget, TrellisCNN
 from sharedAdam import SharedAdam
 from worker import Worker
+from workerBudget import WorkerBudget
+from workerTrellis import WorkerTrellis
 
 from gensim.models import KeyedVectors
 import numpy as np
@@ -48,7 +49,7 @@ parser.add_argument('--init', type=int, default=5,
                    help='pretrain size')
 # agent set
 parser.add_argument('--model', default='ParamRNN',
-                   help='dqn net: ParamRNN, ParamRNNBudget, trellisCNN')
+                   help='dqn net: ParamRNN, ParamRNNBudget, TrellisCNN')
 parser.add_argument('--feature', default='all', 
                    help='use feature parameter: all, node, edge')
 parser.add_argument('--reweight', default='valid2Vx',
@@ -63,8 +64,8 @@ parser.add_argument('--cnn-flt-size', type=int, default=4,
 parser.add_argument('--cnn-stride', type=int, default=2,
                    help='stride in CNN')
 # server
-parser.add_argument('--cuda', default=True, 
-                   help='using cuda or cpu')
+parser.add_argument('--cuda', type=int, default=0, 
+                   help='which cuda to use')
 parser.add_argument('--episode-train', type=int, default=50,
                    help='training episode number')
 parser.add_argument('--episode-test', type=int, default=10,
@@ -73,9 +74,12 @@ parser.add_argument('--episode-test', type=int, default=10,
 def main():
     args = parser.parse_args()
     
-    use_cuda = args.cuda and torch.cuda.is_available()
-    device = torch.device("cuda" if use_cuda else "cpu")
-#     device = "cpu"
+    use_cuda = torch.cuda.is_available()
+    if use_cuda:
+        device = torch.device("cuda:{}".format(args.cuda))
+    else:
+        device = torch.device("cpu")
+    
     
     # important! Without this, lnet in worker cannot forward
     # spawn: for unix and linux; fork: for unix only
@@ -99,10 +103,15 @@ def main():
     # optimizer for global model
     opt = SharedAdam(agent.parameters(), lr=0.001)
     
-    # offline train agent with 100 episodes
+    # offline train agent for args.episode_train rounds
     start_time = time.time()
     global_ep, global_ep_r, res_queue = mp.Value('i', 0), mp.Value('d', 0.), mp.Queue()
-    tr_workers = [Worker('train', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+    if args.model == 'ParamRNN':
+        tr_workers = [Worker('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+    elif args.model == 'ParamRNNBudget':
+        tr_workers = [WorkerBudget('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+    elif args.model == 'TrellisCNN':
+        tr_workers = [WorkerTrellis('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
     [w.start() for w in tr_workers]
     tr_result = []
     while True:
@@ -114,10 +123,15 @@ def main():
     [w.join() for w in tr_workers]
     print ("Training Done! Cost {} for {} episodes.".format(time.time()-start_time, args.episode_train))
     
-    # online test agent with 10 episodes
+    # online test agent for args.episode_test rounds
     start_time = time.time()
     global_ep, global_ep_r, res_queue = mp.Value('i', 0), mp.Value('d', 0.), mp.Queue()
-    ts_workers = [Worker('test', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+    if args.model == 'ParamRNN':
+        ts_workers = [Worker('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+    elif args.model == 'ParamRNNBudget':
+        ts_workers = [WorkerBudget('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+    elif args.model == 'TrellisCNN':
+        ts_workers = [WorkerTrellis('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
     [w.start() for w in ts_workers]
     ts_result = []
     while True:
