@@ -170,10 +170,10 @@ class TrellisRNN3(nn.Module): # only trellis
         return self.fc(x) # flatten the output
     
     
-class AgentTrellisRNN(nn.Module):
+class AgentTrellisRNN():
     def __init__(self, model = 'trellisCNN', greedy = 'te', max_len=50, embedding_size=200, parameter_shape=(5,5), rnn_hidden = 16, n_filters = 4, filter_size = 3, stride = 2):
         print("=== Agent: created")
-        super(AgentTrellisRNN, self).__init__()
+#         super(AgentTrellisRNN, self).__init__()
         self.random = random.Random(10)
         # replay memory
         self.replay_buffer = deque()
