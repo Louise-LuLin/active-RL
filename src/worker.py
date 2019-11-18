@@ -86,8 +86,9 @@ class Worker(mp.Process):
                 if done:
                     self.record(res_cost, res_explore, res_qvalue, res_reward, res_acc_test, res_acc_valid)
                     print ('cost: {}'.format(res_cost))
+                    print ('explore: {}'.format(res_explore))
                     print ('qvalue: {}'.format(res_qvalue))
-                    print ('reward: {}'.format(res_r))
+                    print ('reward: {}'.format(res_reward))
                     print ('acc_test: {}'.format(res_acc_test))
                     print ('acc_valid: {}'.format(res_acc_valid))
                     ep += 1
