@@ -14,7 +14,7 @@ class LabelEnv:
     def __init__(self, args, mode):
         self.dataloader = DataLoader(args.data, args.folder, args.num_flag, args.embed_flag, args.seed_data)
         self.data = self.dataloader.sequence
-        
+        self.model = args.model
         # initialize unlabeled/validation/test set
         if mode == 'offline':
             self.data_idx = self.dataloader.offline_idx[:]
@@ -73,7 +73,10 @@ class LabelEnv:
             seq_confidence.append(self.tagger.compute_confidence(seq))
             seq_trellis.append(self.tagger.get_marginal_matrix(seq))
         # construct parameter matrix for current tagger
-        tagger_para = self.tagger.get_parameter_matrix()
+        if self.model == 'SepRNN':
+            tagger_para = self.tagger.get_sep_matrix()
+        else:
+            tagger_para = self.tagger.get_parameter_matrix()
         observation = [self.seq_embedding, seq_confidence, seq_trellis, tagger_para, 
                        self.queried, self.train, self.budget-len(self.queried)]
         return observation

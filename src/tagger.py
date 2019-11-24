@@ -190,8 +190,27 @@ class CrfModel(object):
             
         return in_acc, out_acc, all_acc, sum(acc)/len(acc)
     
+    def get_sep_matrix(self):
+        loc = {'0':0, '-1':1, '+1':2}
+        paras1 = np.zeros(shape=(len(loc), len(self.word_dict), len(self.label_dict)))
+        paras2 = np.zeros(shape=(len(self.label_dict), len(self.label_dict)))
+        for (attr, label), weight in self.crf.state_features_.items():
+            attr = attr.split(":")
+            dim0 = loc[attr[0]]
+            dim1 = self.word_dict[':'.join(attr[2:])]
+            dim2 = self.label_dict[label]
+            paras1[dim0][dim1][dim2] = weight
+
+        for (label_from, label_to), weight in self.crf.transition_features_.items():
+            dim1 = self.label_dict[label_from]
+            dim2 = self.label_dict[label_to]
+            paras2[dim1][dim2] = weight
+        return (paras1, paras2)
+
     def get_parameter_matrix(self):
         loc = {'0':0, '-1':1, '+1':2}
+        
+
         if self.feature == 'all':
             paras = np.zeros(shape=(len(loc) * len(self.word_dict) + len(self.label_dict), len(self.label_dict)))
             for (attr, label), weight in self.crf.state_features_.items():
@@ -234,6 +253,10 @@ class CrfModel(object):
     def get_para_shape(self):
         self.train()
         return self.get_parameter_matrix().shape
+
+    def get_sep_para_shape(self):
+        self.train()
+        return len(self.label_dict), len(self.word_dict), len(self.label_dict)
     
     def get_trellis_shape(self):
         marginals = np.zeros(shape=(self.max_len, len(self.label_dict)))

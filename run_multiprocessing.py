@@ -3,11 +3,12 @@ sys.path.insert(1, './src')
 import os
 
 from environment import LabelEnv
-from agent import ParamRNN, ParamRNNBudget, TrellisCNN
+from agent import ParamRNN, ParamRNNBudget, TrellisCNN, PAL, SepRNN
 from sharedAdam import SharedAdam
 from worker import Worker
 from workerBudget import WorkerBudget
 from workerTrellis import WorkerTrellis
+from workerSep import WorkerSep
 
 from gensim.models import KeyedVectors
 import numpy as np
@@ -31,7 +32,7 @@ parser = argparse.ArgumentParser(description='Asyncronous DQN')
 # environment set: dataset, data split, budget
 parser.add_argument('--folder', default="./datasets/", 
                    help='dataset folder')
-parser.add_argument('--data', default='sod', 
+parser.add_argument('--data', default='conll', 
                    help='choose a dataset')
 parser.add_argument('--num-flag', default=True, 
                    help='replace number with NUM')
@@ -48,25 +49,25 @@ parser.add_argument('--seed-agent', type=int, default=8,
 parser.add_argument('--init', type=int, default=5,
                    help='pretrain size')
 # agent set
-parser.add_argument('--model', default='ParamRNN',
+parser.add_argument('--model', default='PAL',
                    help='dqn net: ParamRNN, ParamRNNBudget, TrellisCNN')
 parser.add_argument('--feature', default='all', 
                    help='use feature parameter: all, node, edge')
 parser.add_argument('--reweight', default='valid2Vx',
                    help='reweight reward: [valid, test]2[V, T][x,y]')
 # NN parameters
-parser.add_argument('--rnn-hidden', type=int, default=64,
+parser.add_argument('--rnn-hidden', type=int, default=128,
                    help='hidden size in RNN')
 parser.add_argument('--cnn-flt-n', type=int, default=16,
                    help='number of filters in CNN')
-parser.add_argument('--cnn-flt-size', type=int, default=4,
+parser.add_argument('--cnn-flt-size', type=int, default=2,
                    help='size of filters in CNN')
 parser.add_argument('--cnn-stride', type=int, default=2,
                    help='stride in CNN')
 # server
 parser.add_argument('--cuda', type=int, default=0, 
                    help='which cuda to use')
-parser.add_argument('--episode-train', type=int, default=50,
+parser.add_argument('--episode-train', type=int, default=10,
                    help='training episode number')
 parser.add_argument('--episode-test', type=int, default=10,
                    help='test episode number')
@@ -93,6 +94,11 @@ def main():
         agent = ParamRNNBudget(LabelEnv(args, None), args).to(device)
     elif args.model == 'TrellisCNN':
         agent = TrellisCNN(LabelEnv(args, None), args).to(device)
+    elif args.model == 'PAL':
+        agent = PAL(LabelEnv(args, None), args).to(device)
+    elif args.model == 'SepRNN':
+        agent = SepRNN(LabelEnv(args, None), args).to(device)
+
     else:
         print ("agent model {} not implemented!!".format(args.model))
         return
@@ -112,6 +118,12 @@ def main():
         tr_workers = [WorkerBudget('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
     elif args.model == 'TrellisCNN':
         tr_workers = [WorkerTrellis('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+    elif args.model == 'PAL':
+        tr_workers = [WorkerTrellis('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+    elif args.model == 'SepRNN':
+        tr_workers = [WorkerSep('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+
+    #print('start')
     [w.start() for w in tr_workers]
     tr_result = []
     while True:
@@ -132,6 +144,11 @@ def main():
         ts_workers = [WorkerBudget('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
     elif args.model == 'TrellisCNN':
         ts_workers = [WorkerTrellis('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+    elif args.model == 'PAL':
+        ts_workers = [WorkerTrellis('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+    elif args.model == 'SepRNN':
+        ts_workers = [WorkerSep('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+
     [w.start() for w in ts_workers]
     ts_result = []
     while True:

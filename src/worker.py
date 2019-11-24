@@ -49,7 +49,7 @@ class Worker(mp.Process):
         self.buffer = deque()
         self.time_step = 0
         # episode
-        self.max_ep = args.episode_train if self.mode == 'train' else args.episode_test
+        self.max_ep = args.episode_train if self.mode == 'offline' else args.episode_test
         
     def run(self):        
         total_step = 1
@@ -148,7 +148,8 @@ class Worker(mp.Process):
         # update gnet one step forward
         self.opt.step()
         # pull gnet's parameters to local
-        self.lnet.load_state_dict(self.gnet.state_dict())
+        if mode == 'offline':
+            self.lnet.load_state_dict(self.gnet.state_dict())
         # update target_net
         if self.time_step % UPDATE_TARGET_ITER == 0:
             self.target_net = copy.deepcopy(self.lnet)
