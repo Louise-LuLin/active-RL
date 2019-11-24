@@ -13,7 +13,7 @@ import numpy as np
 import copy
 from collections import deque
 
-from agent import ParamRNN, ParamRNNBudget, TrellisCNN
+from agent import ParamRNN, ParamRNNBudget, TrellisCNN, PAL
 from environment import LabelEnv
 
 # step of update lnet (and push to gnet)
@@ -36,7 +36,10 @@ class WorkerTrellis(mp.Process):
         self.g_ep, self.g_ep_r, self.res_queue = global_ep, global_ep_r, res_queue
         self.gnet, self.opt = gnet, opt
         self.env = LabelEnv(args, self.mode)
-        self.lnet = TrellisCNN(self.env, args).to(self.device)
+        if args.model == 'TrellisCNN':
+            self.lnet = TrellisCNN(self.env, args).to(self.device)
+        elif args.model == 'PAL':
+            self.lnet = PAL(self.env, args).to(self.device)
         self.lnet.load_state_dict(self.gnet.state_dict())
         self.target_net = copy.deepcopy(self.lnet)
         # replay memory
@@ -45,8 +48,8 @@ class WorkerTrellis(mp.Process):
         self.time_step = 0
         # episode
         self.max_ep = args.episode_train if self.mode == 'train' else args.episode_test
-        
-    def run(self):        
+
+    def run(self):      
         total_step = 1
         ep = 1
         while self.g_ep.value < self.max_ep:
@@ -127,6 +130,8 @@ class WorkerTrellis(mp.Process):
         return q_batch, y_batch
                 
     def update(self):
+        #if self.mode == 'online':
+            #return
         self.lnet.train()
         q_batch, y_batch = self.sample_from_buffer(BATCH_SIZE)
         loss = F.mse_loss(q_batch, y_batch)
@@ -145,7 +150,8 @@ class WorkerTrellis(mp.Process):
         # update gnet one step forward
         self.opt.step()
         # pull gnet's parameters to local
-        self.lnet.load_state_dict(self.gnet.state_dict())
+        if self.mode == 'offline':
+            self.lnet.load_state_dict(self.gnet.state_dict())
         # update target_net
         if self.time_step % UPDATE_TARGET_ITER == 0:
             self.target_net = copy.deepcopy(self.lnet)
