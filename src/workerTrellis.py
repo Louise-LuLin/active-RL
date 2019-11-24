@@ -157,6 +157,7 @@ class WorkerTrellis(mp.Process):
             self.target_net = copy.deepcopy(self.lnet)
         self.time_step += 1
         
+        
     def record(self, res_cost, res_explore, res_qvalue, res_reward, res_acc_test, res_acc_valid):
         with self.g_ep.get_lock():
             self.g_ep.value += 1
