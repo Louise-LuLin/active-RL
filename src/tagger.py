@@ -209,8 +209,6 @@ class CrfModel(object):
 
     def get_parameter_matrix(self):
         loc = {'0':0, '-1':1, '+1':2}
-        
-
         if self.feature == 'all':
             paras = np.zeros(shape=(len(loc) * len(self.word_dict) + len(self.label_dict), len(self.label_dict)))
             for (attr, label), weight in self.crf.state_features_.items():

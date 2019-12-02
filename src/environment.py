@@ -80,6 +80,9 @@ class LabelEnv:
         observation = [self.seq_embedding, seq_confidence, seq_trellis, tagger_para, 
                        self.queried, self.train, self.budget-len(self.queried)]
         return observation
+    
+    def get_horizon(self):
+        return self.budget-len(self.queried)
  
     def feedback(self, new_idx):
         # reward

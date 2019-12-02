@@ -14,6 +14,40 @@ import torchvision.transforms as T
 # device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
 # device = torch.device('cpu')
 
+class TE(nn.Module):
+    def __init__(self, env, args):
+        super(TE, self).__init__()
+        
+    def get_action(self, state, device):
+        # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, train, rest_budget]
+        seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
+        # note: index in training set
+        #       index in data should be: scope[i] for i in candidates
+        candidates = [i for i, idx in enumerate(scope) if idx not in queried]
+        
+        # use TE to explore
+        max_idx = candidates[np.argmax([seq_confidence[i] for i in candidates])]
+        
+        return (1, max_idx, 0)
+
+class Rand(nn.Module):
+    def __init__(self, env, args):
+        super(Rand, self).__init__()
+        # set random seed
+        self.random = random.Random(args.seed_agent)
+        
+    def get_action(self, state, device):
+        # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, train, rest_budget]
+        seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
+        # note: index in training set
+        #       index in data should be: scope[i] for i in candidates
+        candidates = [i for i, idx in enumerate(scope) if idx not in queried]
+        
+        # use TE to explore
+        max_idx = self.random.choice(candidates)
+        
+        return (1, max_idx, 0)
+        
 class ParamRNN(nn.Module):
     def __init__(self, env, args):
         super(ParamRNN, self).__init__()
@@ -185,7 +219,6 @@ class ParamRNNBudget(nn.Module):
         x = x1 + x2 + x3
         return self.fc(x) # flatten the output
     
-    
     def get_action(self, state, device):
         self.eval()
         # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, train, rest_budget]
@@ -298,6 +331,7 @@ class TrellisCNN(nn.Module): # all
         x = x1 + x2 + x3
         
         return self.fc(x) # flatten the output
+    
     def get_action(self, state, device):
         self.eval()
         # observation = [seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, train, rest_budget]
@@ -327,8 +361,6 @@ class TrellisCNN(nn.Module): # all
                 max_qvalue = qvalue
                 max_idx = i
         return (1, max_idx, max_qvalue)
-
-
 
 class PAL(nn.Module): # all
     def __init__(self, env, args):
@@ -381,8 +413,6 @@ class PAL(nn.Module): # all
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
     def forward(self, trellis_x, seq_x, conf_x):
-        
-
         x1 = self.pool(self.conv1(trellis_x))
         x1 = F.relu(self.fc1(x1.view(x1.size(0), -1)))
         seq_x = seq_x.unsqueeze(1)
@@ -397,10 +427,6 @@ class PAL(nn.Module): # all
         
         return self.fc(x) # flatten the output
 
-
-
-
-    
     def get_action(self, state, device):
         self.eval()
         # observation = [seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, train, rest_budget]
@@ -430,7 +456,6 @@ class PAL(nn.Module): # all
                 max_qvalue = qvalue
                 max_idx = i
         return (1, max_idx, max_qvalue)
-
 
 class SepRNN(nn.Module):
     def __init__(self, env, args):
@@ -513,7 +538,6 @@ class SepRNN(nn.Module):
         #x = torch.cat((x1, x2, x3), 1)
         x = x1+x2+x3
         return self.fc(x) # flatten the output
-    
     
     def get_action(self, state, device):
         self.eval()
