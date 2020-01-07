@@ -3,9 +3,9 @@ sys.path.insert(1, './src')
 import os
 
 from environment import LabelEnv
-from agent import ParamRNN, ParamRNNBudget, TrellisCNN, PAL, SepRNN
+from agent import ParamRNN, ParamRNNBudget, TrellisCNN, PAL, SepRNN, TrellisBudget
 from sharedAdam import SharedAdam
-from worker import WorkerParam, WorkerBudget, WorkerTrellis, WorkerSep
+from worker import WorkerParam, WorkerBudget, WorkerTrellis, WorkerSep, WorkerHeur, WorkerTrellisBudget
 
 from gensim.models import KeyedVectors
 import numpy as np
@@ -47,7 +47,7 @@ parser.add_argument('--init', type=int, default=5,
                    help='pretrain size')
 # agent set
 parser.add_argument('--model', default='PAL',
-                   help='dqn net: ParamRNN, ParamRNNBudget, SepRNN, TrellisCNN')
+                   help='dqn net: ParamRNN, ParamRNNBudget, SepRNN, TrellisCNN, TrellisBudget')
 parser.add_argument('--feature', default='all', 
                    help='use feature parameter: all, node, edge')
 parser.add_argument('--reweight', default='valid2Vx',
@@ -57,9 +57,9 @@ parser.add_argument('--rnn-hidden', type=int, default=128,
                    help='hidden size in RNN')
 parser.add_argument('--cnn-flt-n', type=int, default=16,
                    help='number of filters in CNN')
-parser.add_argument('--cnn-flt-size', type=int, default=2,
+parser.add_argument('--cnn-flt-size', type=int, default=3,
                    help='size of filters in CNN')
-parser.add_argument('--cnn-stride', type=int, default=2,
+parser.add_argument('--cnn-stride', type=int, default=1,
                    help='stride in CNN')
 # server
 parser.add_argument('--cuda', type=int, default=0, 
@@ -68,6 +68,8 @@ parser.add_argument('--episode-train', type=int, default=50,
                    help='training episode number')
 parser.add_argument('--episode-test', type=int, default=10,
                    help='test episode number')
+parser.add_argument('--worker-n', type=int, default=5,
+                   help='worker number')
 
 def main():
     args = parser.parse_args()
@@ -91,58 +93,68 @@ def main():
         agent = ParamRNNBudget(LabelEnv(args, None), args).to(device)
     elif args.model == 'TrellisCNN':
         agent = TrellisCNN(LabelEnv(args, None), args).to(device)
+    elif args.model == 'TrellisBudget':
+        agent = TrellisBudget(LabelEnv(args, None), args).to(device)
     elif args.model == 'PAL':
         agent = PAL(LabelEnv(args, None), args).to(device)
     elif args.model == 'SepRNN':
         agent = SepRNN(LabelEnv(args, None), args).to(device)
+    elif args.model == 'Rand' or args.model == 'TE':
+        agent = None
     else:
         print ("agent model {} not implemented!!".format(args.model))
         return
-    # share the global parameters
-    agent.share_memory() 
-    para_size = sum(p.numel() for p in agent.parameters() if p.requires_grad)
-    print ('global parameter size={}'.format(para_size))
     # optimizer for global model
-    opt = SharedAdam(agent.parameters(), lr=0.001)
+    opt = SharedAdam(agent.parameters(), lr=0.001) if agent else None
+    # share the global parameters
+    if agent:
+        agent.share_memory() 
+        para_size = sum(p.numel() for p in agent.parameters() if p.requires_grad)
+        print ('global parameter size={}'.format(para_size))
     
     # offline train agent for args.episode_train rounds
     start_time = time.time()
     global_ep, global_ep_r, res_queue = mp.Value('i', 0), mp.Value('d', 0.), mp.Queue()
     if args.model == 'ParamRNN':
-        tr_workers = [WorkerParam('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+        tr_workers = [WorkerParam('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     elif args.model == 'ParamRNNBudget':
-        tr_workers = [WorkerBudget('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+        tr_workers = [WorkerBudget('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     elif args.model == 'TrellisCNN' or args.model == 'PAL':
-        tr_workers = [WorkerTrellis('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+        tr_workers = [WorkerTrellis('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
+    elif args.model == 'TrellisBudget':
+        tr_workers = [WorkerTrellisBudget('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     elif args.model == 'SepRNN':
-        tr_workers = [WorkerSep('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
-
-    #print('start')
-    [w.start() for w in tr_workers]
+        tr_workers = [WorkerSep('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     tr_result = []
-    while True:
-        res = res_queue.get()
-        if res is not None:
-            tr_result.append(res)
-        else:
-            break
-    [w.join() for w in tr_workers]
-    print ("Training Done! Cost {} for {} episodes.".format(time.time()-start_time, args.episode_train))
+    if agent:
+        [w.start() for w in tr_workers]
+        while True:
+            res = res_queue.get()
+            if res is not None:
+                tr_result.append(res)
+            else:
+                break
+        [w.join() for w in tr_workers]
+        print ("Training Done! Cost {} for {} episodes.".format(time.time()-start_time, args.episode_train))
     
     # online test agent for args.episode_test rounds
     start_time = time.time()
     global_ep, global_ep_r, res_queue = mp.Value('i', 0), mp.Value('d', 0.), mp.Queue()
     if args.model == 'ParamRNN':
-        ts_workers = [WorkerParam('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+        ts_workers = [WorkerParam('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     elif args.model == 'ParamRNNBudget':
-        ts_workers = [WorkerBudget('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+        ts_workers = [WorkerBudget('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     elif args.model == 'TrellisCNN' or args.model == 'PAL':
-        ts_workers = [WorkerTrellis('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+        ts_workers = [WorkerTrellis('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
+    elif args.model == 'TrellisBudget':
+        ts_workers = [WorkerTrellisBudget('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     elif args.model == 'SepRNN':
-        ts_workers = [WorkerSep('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(5)]
+        ts_workers = [WorkerSep('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
+    elif args.model == 'Rand' or args.model == 'TE':
+        ts_workers = [WorkerHeur('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
 
-    [w.start() for w in ts_workers]
     ts_result = []
+    [w.start() for w in ts_workers]
     while True:
         res = res_queue.get()
         if res is not None:
