@@ -19,13 +19,13 @@ from environment import LabelEnv
 # step of update lnet (and push to gnet)
 UPDATE_GLOBAL_ITER = 5
 # decay rate of past observation
-GAMMA = 0.999
+GAMMA = 0.99
 # step of update target net
-UPDATE_TARGET_ITER = 10
+UPDATE_TARGET_ITER = 20
 # number of previous transitions to remember
-REPLAY_BUFFER_SIZE = 50
+REPLAY_BUFFER_SIZE = 200
 # size of minibatch
-BATCH_SIZE = 5 
+BATCH_SIZE = 10
 
 class Worker(mp.Process):
     def __init__(self, mode, device, gnet, opt, args, global_ep, global_ep_r, res_queue, pid):
@@ -249,6 +249,43 @@ class WorkerTrellis(Worker):
                     q = self.target_net(t, a, c).detach().item()
                     q_values.append(q)
                 y_batch.append(max(q_values) * GAMMA + r_batch[i])
+        y_batch = torch.from_numpy(np.array(y_batch)).type(torch.FloatTensor).to(self.device)
+        return q_batch, y_batch
+    
+class WorkerSupervised(Worker):
+    def __init__(self, mode, device, gnet, opt, args, global_ep, global_ep_r, res_queue, pid):
+        Worker.__init__(self, mode, device, gnet, opt, args, global_ep, global_ep_r, res_queue, pid)
+        self.lnet = TrellisCNN(self.env, args).to(self.device)
+        self.lnet.load_state_dict(self.gnet.state_dict())
+        self.target_net = copy.deepcopy(self.lnet)
+    
+    # construct training batch (of y and qvalue)
+    def sample_from_buffer(self, batch_size):
+        # experience = (state, action, reward, state2, done)
+        # state = (seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, scope, rest_budget)
+        minibatch = self.random.sample(self.buffer, min(len(self.buffer), batch_size))
+        t_batch = torch.from_numpy(np.array([e[0][2][e[1]] for e in minibatch])).type(torch.FloatTensor).unsqueeze(1).to(self.device)
+        a_batch = torch.from_numpy(np.array([e[0][0][e[1]] for e in minibatch])).type(torch.FloatTensor).to(self.device)
+        c_batch = torch.from_numpy(np.array([[e[0][1][e[1]]] for e in minibatch])).type(torch.FloatTensor).to(self.device)
+        # compute Q(s_t, a)
+        q_batch = self.lnet(t_batch, a_batch, c_batch)
+        # compute max Q'(s_t+1, a)
+        r_batch = [e[2] for e in minibatch]
+        y_batch = []
+        for i, e in enumerate(minibatch):
+            y_batch.append(r_batch[i])
+#             if e[4]:
+#                 y_batch.append(r_batch[i])
+#             else:
+#                 candidates = [k for k, idx in enumerate(e[3][5]) if idx not in e[3][4]]
+#                 q_values = []
+#                 for k in candidates:
+#                     t = torch.from_numpy(e[3][2][k]).type(torch.FloatTensor).unsqueeze(0).unsqueeze(0).to(self.device)
+#                     a = torch.from_numpy(e[3][0][k]).type(torch.FloatTensor).unsqueeze(0).to(self.device)
+#                     c = torch.from_numpy(np.array(e[3][1][k])).type(torch.FloatTensor).unsqueeze(0).to(self.device)
+#                     q = self.target_net(t, a, c).detach().item()
+#                     q_values.append(q)
+#                 y_batch.append(max(q_values) * GAMMA + r_batch[i])
         y_batch = torch.from_numpy(np.array(y_batch)).type(torch.FloatTensor).to(self.device)
         return q_batch, y_batch
 

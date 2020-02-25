@@ -78,7 +78,7 @@ class LabelEnv:
         else:
             tagger_para = self.tagger.get_parameter_matrix()
         observation = [self.seq_embedding, seq_confidence, seq_trellis, tagger_para, 
-                       self.queried, self.train, self.budget-len(self.queried)]
+                       self.queried, self.train, float(self.budget-len(self.queried))/float(self.budget)]
         return observation
     
     def get_horizon(self):
@@ -90,7 +90,10 @@ class LabelEnv:
         self.tagger.add_instances([self.data[new_seq_idx]])
         self.tagger.train()
         new_acc = self.reweight_acc()
-        reward = new_acc - self.acc
+        if self.model == 'TrellisSupervised':
+            reward = new_acc
+        else:
+            reward = new_acc - self.acc
         self.acc = new_acc
         # mark queried
         self.queried.append(new_seq_idx)

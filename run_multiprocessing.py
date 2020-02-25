@@ -5,7 +5,7 @@ import os
 from environment import LabelEnv
 from agent import ParamRNN, ParamRNNBudget, TrellisCNN, PAL, SepRNN, TrellisBudget
 from sharedAdam import SharedAdam
-from worker import WorkerParam, WorkerBudget, WorkerTrellis, WorkerSep, WorkerHeur, WorkerTrellisBudget
+from worker import WorkerParam, WorkerBudget, WorkerTrellis, WorkerSep, WorkerHeur, WorkerTrellisBudget, WorkerSupervised
 
 from gensim.models import KeyedVectors
 import numpy as np
@@ -47,7 +47,7 @@ parser.add_argument('--init', type=int, default=5,
                    help='pretrain size')
 # agent set
 parser.add_argument('--model', default='PAL',
-                   help='dqn net: ParamRNN, ParamRNNBudget, SepRNN, TrellisCNN, TrellisBudget')
+                   help='dqn net: ParamRNN, ParamRNNBudget, SepRNN, TrellisCNN, TrellisBudget, TrellisSupervised')
 parser.add_argument('--feature', default='all', 
                    help='use feature parameter: all, node, edge')
 parser.add_argument('--reweight', default='valid2Vx',
@@ -91,7 +91,7 @@ def main():
         agent = ParamRNN(LabelEnv(args, None), args).to(device)
     elif args.model == 'ParamRNNBudget':
         agent = ParamRNNBudget(LabelEnv(args, None), args).to(device)
-    elif args.model == 'TrellisCNN':
+    elif args.model == 'TrellisCNN' or args.model == 'TrellisSupervised':
         agent = TrellisCNN(LabelEnv(args, None), args).to(device)
     elif args.model == 'TrellisBudget':
         agent = TrellisBudget(LabelEnv(args, None), args).to(device)
@@ -121,6 +121,8 @@ def main():
         tr_workers = [WorkerBudget('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     elif args.model == 'TrellisCNN' or args.model == 'PAL':
         tr_workers = [WorkerTrellis('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
+    elif args.model == 'TrellisSupervised':
+        tr_workers = [WorkerSupervised('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     elif args.model == 'TrellisBudget':
         tr_workers = [WorkerTrellisBudget('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     elif args.model == 'SepRNN':
@@ -146,6 +148,8 @@ def main():
         ts_workers = [WorkerBudget('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     elif args.model == 'TrellisCNN' or args.model == 'PAL':
         ts_workers = [WorkerTrellis('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
+    elif args.model == 'TrellisSupervised':
+        ts_workers = [WorkerSupervised('online', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     elif args.model == 'TrellisBudget':
         ts_workers = [WorkerTrellisBudget('offline', device, agent, opt, args, global_ep, global_ep_r, res_queue, pid) for pid in range(args.worker_n)]
     elif args.model == 'SepRNN':

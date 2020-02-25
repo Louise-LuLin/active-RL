@@ -14,6 +14,8 @@ import torchvision.transforms as T
 # device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
 # device = torch.device('cpu')
 
+EPS = 0.0
+
 class TE(nn.Module):
     def __init__(self, env, args):
         super(TE, self).__init__()
@@ -133,7 +135,7 @@ class ParamRNN(nn.Module):
         max_qvalue = self.forward(para_ts, embed_ts).detach().item()
 #         eps_threshold = EPS_END + (EPS_START - EPS_END) * \
 #             math.exp(-1. * self.time_step / EPS_DECAY)
-        eps_threshold = 0.3
+        eps_threshold = EPS
     
         if self.random.random() < eps_threshold:
             return (0, max_idx, max_qvalue)
@@ -234,7 +236,7 @@ class ParamRNNBudget(nn.Module):
         max_qvalue = self.forward(para_ts, embed_ts, budget_ts).detach().item()
 #         eps_threshold = EPS_END + (EPS_START - EPS_END) * \
 #             math.exp(-1. * self.time_step / EPS_DECAY)
-        eps_threshold = 0.3
+        eps_threshold = EPS
     
         if self.random.random() < eps_threshold:
             return (0, max_idx, max_qvalue)
@@ -347,7 +349,7 @@ class TrellisCNN(nn.Module): # all
         max_qvalue = self.forward(trellis_ts, embed_ts, conf_ts).detach().item()
 #         eps_threshold = EPS_END + (EPS_START - EPS_END) * \
 #             math.exp(-1. * self.time_step / EPS_DECAY)
-        eps_threshold = 0.3
+        eps_threshold = EPS
 
         if self.random.random() < eps_threshold:
             return (0, max_idx, max_qvalue)
@@ -467,7 +469,7 @@ class TrellisBudget(nn.Module): # all
         max_qvalue = self.forward(trellis_ts, embed_ts, conf_ts, budget_ts).detach().item()
 #         eps_threshold = EPS_END + (EPS_START - EPS_END) * \
 #             math.exp(-1. * self.time_step / EPS_DECAY)
-        eps_threshold = 0.3
+        eps_threshold = EPS
 
         if self.random.random() < eps_threshold:
             return (0, max_idx, max_qvalue)
@@ -562,7 +564,7 @@ class PAL(nn.Module): # all
         max_qvalue = self.forward(trellis_ts, embed_ts, conf_ts).detach().item()
 #         eps_threshold = EPS_END + (EPS_START - EPS_END) * \
 #             math.exp(-1. * self.time_step / EPS_DECAY)
-        eps_threshold = 0.3
+        eps_threshold = EPS
 
         if self.random.random() < eps_threshold:
             return (0, max_idx, max_qvalue)
@@ -678,7 +680,7 @@ class SepRNN(nn.Module):
         max_qvalue = self.forward(status_para_ts, trans_para_ts, embed_ts).detach().item()
 #         eps_threshold = EPS_END + (EPS_START - EPS_END) * \
 #             math.exp(-1. * self.time_step / EPS_DECAY)
-        eps_threshold = 0.3
+        eps_threshold = EPS
     
         if self.random.random() < eps_threshold:
             return (0, max_idx, max_qvalue)
