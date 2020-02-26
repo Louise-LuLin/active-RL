@@ -14,7 +14,7 @@ import torchvision.transforms as T
 # device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
 # device = torch.device('cpu')
 
-EPS = 0.0
+EPS = 0.3
 
 class TE(nn.Module):
     def __init__(self, env, args):
@@ -301,7 +301,7 @@ class TrellisCNN(nn.Module): # all
         )
         
         # Fully connected layer
-        self.fc = nn.Linear(rnn_hidden, 1, bias=True)
+        self.fc = nn.Linear(rnn_hidden * 3, 1, bias=True)
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
@@ -309,8 +309,7 @@ class TrellisCNN(nn.Module): # all
         # CNN for trellis
         x1 = F.relu(self.bn1(self.conv1(trellis_x)))
         x1 = F.relu(self.fc11(x1.view(x1.size(0), -1)))
-        x1 = F.relu(self.fc12(x1))
-        
+        x1 = F.relu(self.fc12(x1)).squeeze()  
         # RNN for sequence
         # x shape (batch, time_step, input_size)
         # r_out shape (batch, time_step, output_size)
@@ -322,16 +321,18 @@ class TrellisCNN(nn.Module): # all
         r_out,_ = self.rnn(seq_x, None) 
         # output of last time step
         x2 = r_out[:, -1, :]
-        x2 = F.relu(self.fc2(x2))
-        
+        x2 = F.relu(self.fc2(x2)).squeeze()
         # MLP for confidence
         x3 = F.relu(self.fc3(conf_x))
-    
-#         x3 = self.fc2(conf_test)
-#         x = torch.cat((x1, x2, x3), 1)
-#         x = torch.cat((x1, x2), 1)
-        x = x1 + x2 + x3
-        
+
+        norm = x1.norm(dim=-1, p=2, keepdim = True)
+        x1 = (x1-torch.mean(x1)).div(norm.expand_as(x1))
+        norm = x2.norm(dim=-1, p=2, keepdim = True)
+        x2 = (x2-torch.mean(x2)).div(norm.expand_as(x2))
+        norm = x3.norm(dim=-1, p=2, keepdim = True)
+        x3 = (x3-torch.mean(x3)).div(norm.expand_as(x3))
+        #x = x1 + x2 + x3
+        x = torch.cat((x1, x2, x3), -1)
         return self.fc(x) # flatten the output
     
     def get_action(self, state, device):
