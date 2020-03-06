@@ -20,7 +20,7 @@ class TE(nn.Module):
     def __init__(self, env, args):
         super(TE, self).__init__()
         
-    def get_action(self, state, device):
+    def get_action(self, state, device, mode):
         # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, train, rest_budget]
         seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
         # note: index in training set
@@ -38,7 +38,7 @@ class Rand(nn.Module):
         # set random seed
         self.random = random.Random(args.seed_agent*2)
         
-    def get_action(self, state, device):
+    def get_action(self, state, device, mode):
         # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, train, rest_budget]
         seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
         # note: index in training set
@@ -119,7 +119,7 @@ class ParamRNN(nn.Module):
         return self.fc(x) # flatten the output
     
     
-    def get_action(self, state, device):
+    def get_action(self, state, device, mode):
         self.eval()
         # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, train, rest_budget]
         seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
@@ -137,7 +137,7 @@ class ParamRNN(nn.Module):
 #             math.exp(-1. * self.time_step / EPS_DECAY)
         eps_threshold = EPS
     
-        if self.random.random() < eps_threshold:
+        if self.random.random() < eps_threshold and mode != 'online':
             return (0, max_idx, max_qvalue)
 
         for i in candidates:
@@ -221,7 +221,7 @@ class ParamRNNBudget(nn.Module):
         x = x1 + x2 + x3
         return self.fc(x) # flatten the output
     
-    def get_action(self, state, device):
+    def get_action(self, state, device, mode):
         self.eval()
         # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, train, rest_budget]
         seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
@@ -238,7 +238,7 @@ class ParamRNNBudget(nn.Module):
 #             math.exp(-1. * self.time_step / EPS_DECAY)
         eps_threshold = EPS
     
-        if self.random.random() < eps_threshold:
+        if self.random.random() < eps_threshold and mode != 'online':
             return (0, max_idx, max_qvalue)
 
         for i in candidates:
@@ -335,7 +335,7 @@ class TrellisCNN(nn.Module): # all
         x = torch.cat((x1, x2, x3), -1)
         return self.fc(x) # flatten the output
     
-    def get_action(self, state, device):
+    def get_action(self, state, device, mode):
         self.eval()
         # observation = [seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, train, rest_budget]
         seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
@@ -352,7 +352,7 @@ class TrellisCNN(nn.Module): # all
 #             math.exp(-1. * self.time_step / EPS_DECAY)
         eps_threshold = EPS
 
-        if self.random.random() < eps_threshold:
+        if self.random.random() < eps_threshold and mode != 'online':
             return (0, max_idx, max_qvalue)
 
         for i in candidates:
@@ -364,6 +364,8 @@ class TrellisCNN(nn.Module): # all
                 max_qvalue = qvalue
                 max_idx = i
         return (1, max_idx, max_qvalue)
+
+
 
 class TrellisBudget(nn.Module): # all
     def __init__(self, env, args):
@@ -454,7 +456,7 @@ class TrellisBudget(nn.Module): # all
         
         return self.fc(x) # flatten the output
     
-    def get_action(self, state, device):
+    def get_action(self, state, device, mode):
         self.eval()
         # observation = [seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, train, rest_budget]
         seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
@@ -472,7 +474,7 @@ class TrellisBudget(nn.Module): # all
 #             math.exp(-1. * self.time_step / EPS_DECAY)
         eps_threshold = EPS
 
-        if self.random.random() < eps_threshold:
+        if self.random.random() < eps_threshold and mode != 'online':
             return (0, max_idx, max_qvalue)
 
         for i in candidates:
@@ -550,7 +552,7 @@ class PAL(nn.Module): # all
         
         return self.fc(x) # flatten the output
 
-    def get_action(self, state, device):
+    def get_action(self, state, device, mode):
         self.eval()
         # observation = [seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, train, rest_budget]
         seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
@@ -567,7 +569,7 @@ class PAL(nn.Module): # all
 #             math.exp(-1. * self.time_step / EPS_DECAY)
         eps_threshold = EPS
 
-        if self.random.random() < eps_threshold:
+        if self.random.random() < eps_threshold and mode != 'online':
             return (0, max_idx, max_qvalue)
 
         for i in candidates:
@@ -662,7 +664,7 @@ class SepRNN(nn.Module):
         x = x1+x2+x3
         return self.fc(x) # flatten the output
     
-    def get_action(self, state, device):
+    def get_action(self, state, device, mode):
         self.eval()
         # observation = [seq_embeddings, seq_confidences, seq_trellis, tagger_para, queried, train, rest_budget]
         seq_embedding, seq_confidence, seq_trellis, tagger_para, queried, scope, budget = state
@@ -683,7 +685,7 @@ class SepRNN(nn.Module):
 #             math.exp(-1. * self.time_step / EPS_DECAY)
         eps_threshold = EPS
     
-        if self.random.random() < eps_threshold:
+        if self.random.random() < eps_threshold and mode != 'online':
             return (0, max_idx, max_qvalue)
 
         for i in candidates:

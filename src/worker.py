@@ -60,7 +60,7 @@ class Worker(mp.Process):
             res_acc_valid = []
             while True:
                 # play one step
-                explore_flag, action, qvalue = self.lnet.get_action(state, self.device)
+                explore_flag, action, qvalue = self.lnet.get_action(state, self.device, self.mode)
                 reward, state2, done = self.env.feedback(action)
                 self.push_to_buffer(state, action, reward, state2, done)
                 state = state2
@@ -129,6 +129,7 @@ class Worker(mp.Process):
         if self.time_step % UPDATE_TARGET_ITER == 0:
             self.target_net = copy.deepcopy(self.lnet)
         self.time_step += 1
+
         
     def record(self, res_cost, res_explore, res_qvalue, res_reward, res_acc_test, res_acc_valid):
         with self.g_ep.get_lock():
@@ -385,7 +386,7 @@ class WorkerHeur(Worker):
             res_acc_valid = []
             while True:
                 # play one step
-                explore_flag, action, qvalue = self.lnet.get_action(state, self.device)
+                explore_flag, action, qvalue = self.lnet.get_action(state, self.device, self.mode)
                 reward, state2, done = self.env.feedback(action)
                 state = state2
                 # record results
