@@ -4,6 +4,7 @@ import os
 
 from environment import LabelEnv
 from agent import ParamRNN, ParamRNNBudget, TrellisCNN, PAL, SepRNN, TrellisBudget
+import agent
 from sharedAdam import SharedAdam
 from worker import WorkerParam, WorkerBudget, WorkerTrellis, WorkerSep, WorkerHeur, WorkerTrellisBudget, WorkerSupervised
 
@@ -35,7 +36,7 @@ parser.add_argument('--num-flag', default=True,
                    help='replace number with NUM')
 parser.add_argument('--embed-flag', default=True, 
                    help='use embedding or one-hot')
-parser.add_argument('--budget', type=int, default=75,
+parser.add_argument('--budget', type=int, default=20,
                    help='budget size')
 parser.add_argument('--seed-data', type=int, default=8,
                    help='random seed for data separation')
@@ -43,7 +44,7 @@ parser.add_argument('--seed-batch', type=int, default=8,
                    help='random seed for batch sampling')
 parser.add_argument('--seed-agent', type=int, default=8,
                    help='random seed for agent epsilon greedy')
-parser.add_argument('--init', type=int, default=5,
+parser.add_argument('--init', type=int, default=10,
                    help='pretrain size')
 # agent set
 parser.add_argument('--model', default='PAL',
@@ -64,7 +65,7 @@ parser.add_argument('--cnn-stride', type=int, default=1,
 # server
 parser.add_argument('--cuda', type=int, default=0, 
                    help='which cuda to use')
-parser.add_argument('--episode-train', type=int, default=50,
+parser.add_argument('--episode-train', type=int, default=10,
                    help='training episode number')
 parser.add_argument('--episode-test', type=int, default=10,
                    help='test episode number')
@@ -73,7 +74,7 @@ parser.add_argument('--worker-n', type=int, default=5,
 
 def main():
     args = parser.parse_args()
-    
+    '''
     use_cuda = torch.cuda.is_available()
     if use_cuda:
         device = torch.device("cuda:{}".format(args.cuda))
@@ -87,6 +88,7 @@ def main():
     
     # === multiprocessing ====
     # global agent
+    
     if args.model == 'ParamRNN':
         agent = ParamRNN(LabelEnv(args, None), args).to(device)
     elif args.model == 'ParamRNNBudget':
@@ -167,18 +169,26 @@ def main():
             break
     [w.join() for w in ts_workers]
     print ("Testing Done! Cost {} for {} episodes.".format(time.time()-start_time, args.episode_test))
+    ''' 
+    lbenv = LabelEnv(args, 'online')
+    greedy_gt, greedy_acc = lbenv.get_greedy_ground_truth()
+    print("greedy_acc = {}, the episode is {}".format(greedy_acc, greedy_gt))
     
+    lbenv = LabelEnv(args, 'online')
+    comb_gt, comb_acc = lbenv.get_combination_ground_truth(args.budget)
+    print("comb_acc = {}, the episode is {}".format(comb_acc, comb_gt))
+    '''
     num = "num" if args.num_flag else ""
     emb = "embed" if args.embed_flag else ""
     filename = "./results_mp/" + args.data + num + emb + "_" + args.model + "_" \
                 + str(args.budget) + "bgt_" + str(args.init) + "init_" \
                 + str(args.episode_train) + "trainEp_" + str(args.episode_test) + "testEp"
-
+    
     with open(filename + ".mp", "wb") as result:
         # format: 
         # tr_result = [res]
         # res = (g_ep, cost, qvalue, r, acc_test, acc_valid)
         pickle.dump((tr_result, ts_result), result)
-
+    '''
 if __name__ == '__main__':
     main()

@@ -6,7 +6,7 @@ from tqdm import tqdm
 import scipy
 from sklearn.feature_extraction.text import CountVectorizer as CV
 import re
-
+import copy
 from tagger import CrfModel
 from data_loader import DataLoader
 
@@ -15,13 +15,20 @@ class LabelEnv:
         self.dataloader = DataLoader(args.data, args.folder, args.num_flag, args.embed_flag, args.seed_data)
         self.data = self.dataloader.sequence
         self.model = args.model
+        self.mode = mode
         # initialize unlabeled/validation/test set
         if mode == 'offline':
             self.data_idx = self.dataloader.offline_idx[:]
         else:
             self.data_idx = self.dataloader.online_idx[:]
         self.valid = self.data_idx[:100]
-        self.train  = self.data_idx[100:]
+
+        if mode == 'offline':
+            self.train  = self.data_idx[100:]
+        else:
+            self.train = self.data_idx[-args.budget-10:]
+        self.acc_test = 0.0
+        self.acc_valid = 0.0
         self.test = self.dataloader.test_idx
         # initialize tagger
         self.tagger = CrfModel(self.dataloader, args.feature)
@@ -55,14 +62,56 @@ class LabelEnv:
     # start the game
     def start(self, seed):
         # shuffle data
-        random.Random(seed).shuffle(self.data_idx)
+        #random.Random(seed).shuffle(self.data_idx)
         self.valid = self.data_idx[:100]
-        self.train  = self.data_idx[100:]
+        if self.mode == 'offline':
+            self.train = self.data_idx[100:]
+        else:
+            self.train  = self.data_idx[-self.budget-10:]
         # initialize tagger
         self.queried = [i for i in self.train[:self.init_n]]
         self.set_tagger([self.data[i] for i in self.queried])
         self.acc = self.reweight_acc()
         return self.get_state()
+
+    def get_greedy_ground_truth(self):
+        while True:
+            if len(self.queried) == self.budget:
+                break
+            max_acc_valid = 0.0
+            candidate = 0
+            for idx in self.train:
+                if idx not in self.queried:
+                    self.queried.append(idx)
+                    (acc_test, acc_valid) = self.eval_tagger()
+                    del self.queried[-1]
+                    if acc_valid > max_acc_valid:
+                        candidate = idx
+                        max_acc_valid = acc_valid
+                        max_acc_test = acc_test
+
+            self.queried.append(candidate)
+        return self.queried[self.init_n:], max_acc_test
+
+    def get_combination_ground_truth(self, costs):
+        if self.train[-1] - self.queried[-1] < costs - self.init_n:
+            return
+        if costs -self.init_n == 0:
+            (acc_test, acc_valid) = self.eval_tagger()
+            if acc_valid > self.acc_valid:
+                self.candidate = copy.deepcopy(self.queried)
+                self.acc_valid = acc_valid
+                self.acc_test = acc_test
+                #print(self.candidate[self.init_n:], self.acc_test)
+            return
+
+        for i in range(self.queried[-1] + 1, self.train[-1]+1):
+            self.queried.append(i)
+            self.get_combination_ground_truth(costs - 1)
+            del self.queried[-1]
+        return self.candidate[self.init_n:], self.acc_test
+         
+
     
     # get current state
     def get_state(self):

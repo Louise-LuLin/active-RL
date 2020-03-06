@@ -63,7 +63,7 @@ class WorkerHorizon(mp.Process):
             while True:
                 # play one step
                 horizon = self.env.get_horizon()
-                explore_flag, action, qvalue = self.lnets[horizon-1].get_action(state, self.device)
+                explore_flag, action, qvalue = self.lnets[horizon-1].get_action(state, self.device, self.mode)
                 reward, state2, done = self.env.feedback(action)
                 self.push_to_buffer(state, action, reward, state2, done, horizon)
                 state = state2

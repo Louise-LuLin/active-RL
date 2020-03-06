@@ -60,7 +60,7 @@ class Worker(mp.Process):
             res_acc_valid = []
             while True:
                 # play one step
-                explore_flag, action, qvalue = self.lnet.get_action(state, self.device)
+                explore_flag, action, qvalue = self.lnet.get_action(state, self.device, self.mode)
                 reward, state2, done = self.env.feedback(action)
                 self.push_to_buffer(state, action, reward, state2, done)
                 state = state2
@@ -86,6 +86,8 @@ class Worker(mp.Process):
                     print ('acc_test: {}'.format(res_acc_test))
                     print ('acc_valid: {}'.format(res_acc_valid))
                     ep += 1
+                    if self.env.mode == 'online':
+                        print(self.env.queried)
                     break
                 total_step += 1
         self.res_queue.put(None)
@@ -385,7 +387,7 @@ class WorkerHeur(Worker):
             res_acc_valid = []
             while True:
                 # play one step
-                explore_flag, action, qvalue = self.lnet.get_action(state, self.device)
+                explore_flag, action, qvalue = self.lnet.get_action(state, self.device, self.mode)
                 reward, state2, done = self.env.feedback(action)
                 state = state2
                 # record results
