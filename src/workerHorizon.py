@@ -17,15 +17,15 @@ from agent import ParamRNN, ParamRNNBudget, TrellisCNN, PAL
 from environment import LabelEnv
 
 # step of update lnet (and push to gnet)
-UPDATE_GLOBAL_ITER = 4
+UPDATE_GLOBAL_ITER = 5
 # decay rate of past observation
 GAMMA = 0.999
 # step of update target net
 UPDATE_TARGET_ITER = 10
 # number of previous transitions to remember
-REPLAY_BUFFER_SIZE = 50
+REPLAY_BUFFER_SIZE = 200
 # size of minibatch
-BATCH_SIZE = 5 
+BATCH_SIZE = 10
 
 class WorkerHorizon(mp.Process):
     def __init__(self, mode, device, gnets, opts, args, global_ep, global_ep_r, res_queue, pid):
@@ -164,3 +164,73 @@ class WorkerHorizon(mp.Process):
                 self.g_ep_r.value = self.g_ep_r.value * 0.9 + res_reward[-1] * 0.1
         print("*** {} {} complete ep {} | ep_r={}".format(self.device, self.pid, self.g_ep.value, self.g_ep_r.value))
                     
+class WorkerHorizon2(WorkerHorizon):
+    def __init__(self, mode, device, gnets, opts, args, global_ep, global_ep_r, res_queue, pid):
+        WorkerHorizon.__init__(self, mode, device, gnets, opts, args, global_ep, global_ep_r, res_queue, pid)
+        
+    def run(self):      
+        total_step = 1
+        ep = 1
+        while True:
+            while self.g_ep.value < self.max_ep:
+                state = self.env.start(self.id + ep)
+                horizon = self.env.get_horizon()
+                explore_flag, action, qvalue = self.lnets[horizon-1].get_action(state, self.device)
+                
+            
+        while self.g_ep.value < self.max_ep:
+            state = self.env.start(self.id + ep)
+            ep_r = 0
+            res_cost = []
+            res_explore = []
+            res_qvalue = []
+            res_reward = []
+            res_acc_test = []
+            res_acc_valid = []
+            while True:
+                # play one step
+                horizon = self.env.get_horizon()
+                explore_flag, action, qvalue = self.lnets[horizon-1].get_action(state, self.device)
+                reward, state2, done = self.env.feedback(action)
+                self.push_to_buffer(state, action, reward, state2, done, horizon)
+                state = state2
+                # record results
+                ep_r += reward
+                (acc_test, acc_valid) = self.env.eval_tagger()
+                res_cost.append(len(self.env.queried))
+                res_explore.append(explore_flag)
+                res_qvalue.append(qvalue)
+                res_reward.append(ep_r)
+                res_acc_test.append(acc_test)
+                res_acc_valid.append(acc_valid)
+                # sync
+                self.update(horizon)
+                if total_step % UPDATE_GLOBAL_ITER == 0 or done:
+                    print ("--{} {}: ep={}, left={}".format(self.device, self.id, self.g_ep.value, state[-1]))
+                if done:
+                    self.record(res_cost, res_explore, res_qvalue, res_reward, res_acc_test, res_acc_valid)
+                    print ('cost: {}'.format(res_cost))
+                    print ('explore: {}'.format(res_explore))
+                    print ('qvalue: {}'.format(res_qvalue))
+                    print ('reward: {}'.format(res_reward))
+                    print ('acc_test: {}'.format(res_acc_test))
+                    print ('acc_valid: {}'.format(res_acc_valid))
+                    ep += 1
+                    break
+                total_step += 1
+        self.res_queue.put(None)
+        
+    def record(self, res_cost, res_explore, res_qvalue, res_reward, res_acc_test, res_acc_valid):
+        with self.g_ep.get_lock():
+            self.g_ep.value += 1
+        res = (self.g_ep.value, res_cost, res_explore, res_qvalue, res_reward, res_acc_test, res_acc_valid)
+        self.res_queue.put(res)
+        # monitor
+        with self.g_ep_r.get_lock():
+            if self.g_ep_r.value == 0.:
+                self.g_ep_r.value = res_reward[-1]
+            else:
+                self.g_ep_r.value = self.g_ep_r.value * 0.9 + res_reward[-1] * 0.1
+        print("*** {} {} complete ep {} | ep_r={}".format(self.device, self.pid, self.g_ep.value, self.g_ep_r.value))
+        
+        
